@@ -1,0 +1,87 @@
+name: Continuous Integration
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+
+  push:
+    branches:
+      - develop
+      - master
+      - main
+    paths-ignore:
+      - 'libs/**'
+      - 'index.html'
+
+  pull_request:
+    branches:
+      - develop
+      - master
+      - main
+    paths-ignore:
+      - 'libs/**'
+      - 'index.html'
+
+concurrency:
+  group: ${{format('{0}:{1}', github.repository, github.ref)}}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+
+    strategy:
+      matrix:
+        include:
+          - { name: "Update Pages", os: ubuntu-22.04 }
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - run: pip install -r requirements.txt
+
+      - name: Boost Clone
+        uses: ./.github/actions/boost_clone
+        with:
+          boost_dir: boost
+          branch: develop
+          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git
+
+      - name: Boost tools
+        working-directory: boost
+        run: |
+          cd tools/build
+          ./bootstrap.sh
+          b2_executable=$(pwd)/b2
+          cd ../..
+          $b2_executable tools/boostdep/build
+
+      - name: Generate graphs
+        run: |
+          python main.py --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
+
+      - name: Identify auto-commit
+        if: startswith(github.event.commits[0].message, 'Update Pages')
+        run: echo "is-auto-commit=true" >> $GITHUB_ENV
+
+      - name: Commit
+        if: env.is-auto-commit != true
+        run: |
+          cur_date=$(date +"%d %B, %Y")
+          git_author=$(git log -n 1 --format='%an')
+          git_email=$(git log -n 1 --format='%ae')
+          git config --global user.name "$git_author"
+          git config --global user.email "$git_email"
+          git add index.html libs
+          git commit -a -m "Update Pages ($cur_date)"
+          git push
+          
+  
+
+
