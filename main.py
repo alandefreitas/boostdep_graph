@@ -8,9 +8,10 @@ import os
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 
-
 def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
     report = subprocess.check_output([boostdep, '--boost-root', boost_root, '--module-levels']).decode('utf-8')
+
+    cxxstd_alternatives = generate_cxxstd_alternatives()
 
     # Get modules per level
     levels = []
@@ -149,7 +150,6 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
             layout[m]['color'] = module_props[m]['cxxstd']
             layout[m]['size'] = 15 + 30 * len(module_props[m]['reverse_transitive']) / max_n_reverse_transitive
             layout[m]['level'] = i
-            text = m
 
             layout[m]['border'] = 'black'
             text = f''
@@ -193,6 +193,13 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
             if module_props[m]['reverse']:
                 deps = sorted(module_props[m]['reverse'], key=lambda d: module_props[d]['level'])
                 text = f"{text}<br>Direct Dependants ({len(deps)}):<br>    {as_paragraph(humanize_string_list(deps, 20), 50, 4)}"
+
+            layout[m]['symbol'] = 'circle'
+            if m in cxxstd_alternatives and cxxstd_alternatives[m]:
+                # https://plotly.com/python/marker-style/#custom-marker-symbols
+                layout[m]['symbol'] = 'diamond'
+                layout[m]['size'] *= 0.8
+                text += f"<br><br>Partial alternatives to this library in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
 
             layout[m]['text'] = text
 
@@ -317,6 +324,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                                marker_size=[xy['size'] for xy in layout.values()],
                                marker_line_width=5,
                                marker_line_color=[xy['border'] for xy in layout.values()],
+                               marker_symbol=[xy['symbol'] for xy in layout.values()],
                                marker=dict(
                                    colorbar=dict(
                                        title="C++ Standard",
@@ -467,6 +475,47 @@ def as_paragraph(s, max_col, indent=0):
 
 verbose = 0
 
+def generate_cxxstd_alternatives():
+    cxxstd_alternatives = {}
+    cxxstd_alternatives['tuple'] = ['std::tuple']
+    cxxstd_alternatives['config'] = ['feature test macros']
+    cxxstd_alternatives['move'] = ['r-value references']
+    cxxstd_alternatives['container_hash'] = ['std::hash']
+    cxxstd_alternatives['variant'] = ['std::variant']
+    cxxstd_alternatives['variant2'] = ['std::variant']
+    cxxstd_alternatives['optional'] = ['std::optional']
+    cxxstd_alternatives['system'] = ['std::system_error', 'std::expected']
+    cxxstd_alternatives['outcome'] = ['std::expected']
+    cxxstd_alternatives['smart_ptr'] = ['std::smart_ptr']
+    cxxstd_alternatives['regex'] = ['std::regex']
+    cxxstd_alternatives['chrono'] = ['std::chrono']
+    cxxstd_alternatives['ratio'] = ['std::ratio']
+    cxxstd_alternatives['function'] = ['std::function']
+    cxxstd_alternatives['type_index'] = ['std::type_index']
+    cxxstd_alternatives['bind'] = ['std::bind']
+    cxxstd_alternatives['array'] = ['std::array']
+    cxxstd_alternatives['atomic'] = ['std::atomic']
+    cxxstd_alternatives['any'] = ['std::any']
+    cxxstd_alternatives['container'] = ['std::map', 'std::set', 'std::vector', 'std::list', 'PMR']
+    cxxstd_alternatives['dynamic_bitset'] = ['std::vector<bool>']
+    cxxstd_alternatives['concept_check'] = ['concepts']
+    cxxstd_alternatives['function_types'] = ['std::invoke_result', '<type_traits>']
+    cxxstd_alternatives['range'] = ['std::ranges']
+    cxxstd_alternatives['format'] = ['std::format']
+    cxxstd_alternatives['thread'] = ['std::thread']
+    cxxstd_alternatives['locale'] = ['std::locale']
+    cxxstd_alternatives['coroutine'] = ['coroutines']
+    cxxstd_alternatives['coroutine2'] = ['coroutines']
+    cxxstd_alternatives['algorithm'] = ['<algorithm>']
+    cxxstd_alternatives['random'] = ['<random>']
+    cxxstd_alternatives['sort'] = ['std::sort']
+    cxxstd_alternatives['foreach'] = ['range-based for loops']
+    cxxstd_alternatives['filesystem'] = ['std::filesystem']
+    cxxstd_alternatives['lambda'] = ['lambdas']
+    cxxstd_alternatives['typeof'] = ['decltype', 'auto']
+    cxxstd_alternatives['date_time'] = ['std::chrono']
+
+    return cxxstd_alternatives
 
 def vprint(*args):
     if verbose >= 1:

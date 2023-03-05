@@ -65,6 +65,8 @@ Many aspect of the library are represented in the network graph:
 - The vertex colors represent the minimum C++ standard supported by a library
     - This uses metadata provided by each library in `meta/libraries.json`
     - If no metadata is provided, the highest standard between direct dependencies is considered
+- The vertex symbol indicates there are partial alternatives to this library in the C++ standard library (although
+  almost no library can be completely replaced by its std::counterpart)
 - If dependencies are highlighted, the color of the edges and vertex borders represents the relationship with the
   specified library
 
