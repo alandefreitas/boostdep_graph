@@ -166,7 +166,16 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                     break
                 elif m in module_props[lib]['transitive']:
                     layout[m]['border'] = "rgb(255, 190, 100)"
-                    text = f'<b>Transitive dependency of {lib}</b><br><br>'
+                    path = [m]
+                    for j in range(i + 1, len(levels)):
+                        if path[-1] in graph[lib]:
+                            break
+                        for lm in levels[j]:
+                            if path[-1] in graph[lm] and lm in module_props[lib]['transitive']:
+                                path.append(lm)
+                                break
+                    path.append(lib)
+                    text = f'<b>Transitive dependency of {lib}</b>:<br>    {as_paragraph(" -> ".join(path), 50, 4)}<br><br>'
                     break
                 elif m in module_props[lib]['reverse']:
                     layout[m]['border'] = "rgb(0, 70, 255)"
@@ -174,7 +183,16 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                     break
                 elif m in module_props[lib]['reverse_transitive']:
                     layout[m]['border'] = "rgb(100, 190, 255)"
-                    text = f'<b>Transitive reverse dependency of {lib}</b><br><br>'
+                    path = [m]
+                    for j in range(i - 1, -1, -1):
+                        if path[-1] in module_props[lib]['reverse']:
+                            break
+                        for lm in levels[j]:
+                            if path[-1] in module_props[lm]['reverse'] and lm in module_props[lib]['reverse_transitive']:
+                                path.append(lm)
+                                break
+                    path.append(lib)
+                    text = f'<b>Transitive reverse dependency of {lib}</b>:<br>    {as_paragraph(" -> ".join(reversed(path)), 50, 4)}<br><br>'
                     break
                 elif 'category' in module_props[m] and 'category' in module_props[lib]:
                     for this_cat in module_props[m]['category']:
@@ -186,7 +204,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
 
             text += f'<b>{m}</b> (C++{module_props[m]["cxxstd_str"]})'
             if 'authors' in module_props[m]:
-                text += f' by <i>{humanize_string_list(module_props[m]["authors"], 5)}</i>'
+                text += f'<br>    by <i>{as_paragraph(humanize_string_list(module_props[m]["authors"], 5), 50, 4)}</i>'
             text += f'<br>'
 
             if 'description' in module_props[m]:
@@ -212,7 +230,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                 # https://plotly.com/python/marker-style/#custom-marker-symbols
                 layout[m]['symbol'] = 'diamond'
                 layout[m]['size'] *= 0.8
-                text += f"<br><br>Partial alternatives to this library in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
+                text += f"<br><br>Partial alternatives in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
 
             if 'category' in module_props[m] and module_props[m]['category']:
                 text += f"<br><br>Category:<br>    {as_paragraph(humanize_string_list(module_props[m]['category'], 50), 50, 4)}"

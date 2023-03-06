@@ -59,14 +59,19 @@ python main.py --boost-root /path/to/boost --boostdep boostdep --output report
 
 Many aspect of the library are represented in the network graph:
 
-- The x-axis represents the dependency level of each library
-- The y-axis represents the number of libraries at each level
-- The vertex size indicates how many other modules depend on it
-- The vertex colors represent the minimum C++ standard supported by a library
-    - This uses metadata provided by each library in `meta/libraries.json`
-    - If no metadata is provided, the highest standard between direct dependencies is considered
-- The vertex symbol indicates there are partial alternatives to this library in the C++ standard library (although
-  almost no library can be completely replaced by its std::counterpart)
-- If dependencies are highlighted, the color of the edges and vertex borders represents the relationship with the
-  specified library
+- Axes
+    - The x-axis represents the dependency level of each library
+    - The y-axis represents the number of libraries at each level
+- Vertices
+    - The vertex size is proportional to how many other modules depend on it
+    - The vertex colors represent the minimum C++ standard supported by a library
+        - This uses metadata provided by each library in `meta/libraries.json`
+        - If no metadata is provided, the highest standard between direct dependencies is considered
+    - The vertex symbol indicates there are partial alternatives to this library in the C++ standard library
+        - Note that almost no library can be completely replaced by its `std` counterpart
+    - Vertex border colors highlight direct/transitive regular/reverse dependencies as well as modules in the same
+      categories
+- Edge colors highlight direct/transitive regular/reverse dependencies
+- Hover text includes name, min. std supported, authors, abstract, dependencies, transitive dependency paths, and
+  categories.
 
