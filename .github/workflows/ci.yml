@@ -51,7 +51,7 @@ jobs:
         with:
           boost_dir: boost
           branch: develop
-          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git
+          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git,https://github.com/boostorg/redis.git
 
       - name: Boost tools
         working-directory: boost

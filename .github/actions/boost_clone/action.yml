@@ -71,7 +71,7 @@ runs:
         patches=${{ inputs.patches }}
         for patch in ${patches//,/ }
         do
-            git clone $patch -b ${{ inputs.branch }}
+            git clone $patch -b ${{ inputs.branch }} | true
         done
 
     # Init all submodules (if boost not found in cache + no specific modules specified)
