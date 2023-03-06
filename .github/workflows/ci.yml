@@ -53,7 +53,7 @@ jobs:
           branch: develop
           patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git,https://github.com/boostorg/redis.git
 
-      - name: Boost tools
+      - name: Build Boostdep
         working-directory: boost
         run: |
           cd tools/build
@@ -62,7 +62,7 @@ jobs:
           cd ../..
           $b2_executable tools/boostdep/build
 
-      - name: Generate graphs
+      - name: Generate visual report
         run: |
           python main.py --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
 
