@@ -82,6 +82,9 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                     if 'description' in data:
                         module_props[m]['description'] = data['description']
 
+                    if 'category' in data:
+                        module_props[m]['category'] = data['category']
+
                     if 'authors' in data:
                         if type(data['authors']) is list:
                             module_props[m]['authors'] = data['authors']
@@ -170,6 +173,13 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                     layout[m]['border'] = "rgb(100, 190, 255)"
                     text = f'<b>Transitive reverse dependency of {lib}</b><br><br>'
                     break
+                elif 'category' in module_props[m] and 'category' in module_props[lib]:
+                    for this_cat in module_props[m]['category']:
+                        for that_cat in module_props[lib]['category']:
+                            if this_cat.lower() == that_cat.lower():
+                                layout[m]['border'] = "rgb(0, 80, 0)"
+                                text = f'{m} and {lib} are both in the <b>{this_cat.lower()}</b> category<br><br>'
+                                break
 
             text += f'<b>{m}</b> (C++{module_props[m]["cxxstd_str"]})'
             if 'authors' in module_props[m]:
@@ -200,6 +210,9 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                 layout[m]['symbol'] = 'diamond'
                 layout[m]['size'] *= 0.8
                 text += f"<br><br>Partial alternatives to this library in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
+
+            if 'category' in module_props[m] and module_props[m]['category']:
+                text += f"<br><br>Category:<br>    {as_paragraph(humanize_string_list(module_props[m]['category'], 50), 50, 4)}"
 
             layout[m]['text'] = text
 
