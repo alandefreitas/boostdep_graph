@@ -415,7 +415,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
         with open(output_path, 'r') as html_file:
             html = html_file.read()
             html = rreplace(html, '</script>',
-                            "</script><script>const AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly = document.querySelectorAll('text.annotation-text'); AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly.forEach(element => { const childElement = element.querySelector('a'); if (!childElement) {  return; } const dataUnformatted = element.getAttribute('data-unformatted'); if (!dataUnformatted) { return; } const hrefValue = dataUnformatted.match(/href=\"([^&]*)\"/)[1]; if (!hrefValue) { return; } childElement.setAttribute('href', hrefValue); }); </script>",
+                            "</script><script>const AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly = document.querySelectorAll('text.annotation-text'); AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly.forEach(element => { const childElement = element.querySelector('a'); if (!childElement) {  return; } const dataUnformatted = element.getAttribute('data-unformatted'); if (!dataUnformatted) { return; } const hrefValue = dataUnformatted.match(/href=\"([^&]*)\"/)[1]; if (!hrefValue) { return; } childElement.setAttribute('href', hrefValue); childElement.removeAttribute('target'); }); </script>",
                             1)
         with open(output_path, 'w') as html_file:
             html_file.write(html)
