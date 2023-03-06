@@ -375,7 +375,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                               ))
 
     date_time = datetime.now()
-    fig.update_layout(title=f'Boost Module Dependencies ({date_time.strftime("%d %B, %Y")})',
+    fig.update_layout(title=f'Boost Module Dependencies: Visual Report ({date_time.strftime("%d %B, %Y")})',
                       xaxis_title="Level",
                       yaxis=go.layout.YAxis(
                           title='Library',
