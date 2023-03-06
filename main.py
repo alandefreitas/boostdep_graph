@@ -157,7 +157,10 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
             layout[m]['border'] = 'black'
             text = f''
             for lib in libs:
-                if m in graph[lib]:
+                if m == lib:
+                    layout[m]['border'] = "rgb(0, 200, 0)"
+                    break
+                elif m in graph[lib]:
                     layout[m]['border'] = "rgb(255, 70, 0)"
                     text = f'<b>Direct dependency of {lib}</b><br><br>'
                     break
