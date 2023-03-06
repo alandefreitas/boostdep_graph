@@ -343,7 +343,7 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                                marker_symbol=[xy['symbol'] for xy in layout.values()],
                                marker=dict(
                                    colorbar=dict(
-                                       title="C++ Standard",
+                                       title="Min. Standard",
                                        tickvals=[1998, 2003, 2011, 2014, 2017, 2020, 2023],
                                        ticktext=['C++98', 'C++03', 'C++11', 'C++14', 'C++17', 'C++20', 'C++23'],
                                    )),
