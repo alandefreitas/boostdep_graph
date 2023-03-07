@@ -51,7 +51,7 @@ jobs:
         with:
           boost_dir: boost
           branch: develop
-          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git,https://github.com/boostorg/redis.git
+          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git,https://github.com/boostorg/redis.git,https://github.com/klemens-morgenstern/asem
 
       - name: Build Boostdep
         working-directory: boost
@@ -64,7 +64,7 @@ jobs:
 
       - name: Generate visual report
         run: |
-          python main.py --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
+          python main.py -v --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
 
       - name: Identify auto-commit
         if: startswith(github.event.commits[0].message, 'Update Pages')
