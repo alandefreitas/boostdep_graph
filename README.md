@@ -65,13 +65,30 @@ Many aspect of the library are represented in the network graph:
 - Vertices
     - The vertex size is proportional to how many other modules depend on it
     - The vertex colors represent the minimum C++ standard supported by a library
-        - This uses metadata provided by each library in `meta/libraries.json`
-        - If no metadata is provided, the highest standard between direct dependencies is considered
-    - The vertex symbol indicates there are partial alternatives to this library in the C++ standard library
-        - Note that almost no library can be completely replaced by its `std` counterpart
-    - Vertex border colors highlight direct/transitive regular/reverse dependencies as well as modules in the same
-      categories
-- Edge colors highlight direct/transitive regular/reverse dependencies
-- Hover text includes name, min. std supported, authors, abstract, dependencies, transitive dependency paths, and
-  categories.
+    - The vertex symbol:
+        - Circle: default
+        - Diamond: there are partial alternatives to this library in the C++ standard library
+            - Note that almost no library can be completely replaced by its `std` counterpart
+        - Pentagon: patched modules / proposals
+    - Vertex border:
+        - Orange: direct dependencies
+        - Light orange: transitive dependencies
+        - Blue: direct reverse dependencies
+        - Light blue: transitive reverse dependencies
+        - Dark green: modules in the same category
+- Edge colors:
+    - Orange: direct dependencies
+    - Light orange: transitive dependencies
+    - Blue: direct reverse dependencies
+    - Light blue: transitive reverse dependencies
+- Hover text includes:
+    - Module name
+    - Min. C++ standard supported
+    - Authors
+    - Abstract
+    - Dependencies
+    - Transitive dependency paths
+    - Categories
 
+The information about libraries comes from the metadata provided by each library in `meta/libraries.json`. For the min.
+C++ standard supported, if no metadata is provided, the highest standard between direct dependencies is considered.

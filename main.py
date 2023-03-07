@@ -1,17 +1,27 @@
 import argparse
-import re
 from datetime import datetime
-import numpy
 import subprocess
 import json
 import os
-import plotly.figure_factory as ff
 import plotly.graph_objects as go
 
 def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
     report = subprocess.check_output([boostdep, '--boost-root', boost_root, '--module-levels']).decode('utf-8')
 
+    # Read constants
     cxxstd_alternatives = generate_cxxstd_alternatives()
+    gitmodules = set()
+    gitmodules_path = os.path.join(boost_root, '.gitmodules')
+    if os.path.exists(gitmodules_path):
+        with open(gitmodules_path) as f:
+            for line in f.readlines():
+                prefix = '[submodule "'
+                if line.startswith(prefix):
+                    t = line[len(prefix):]
+                    p = t.find('"')
+                    if p != -1:
+                        print(t[:p])
+                        gitmodules.add(t[:p])
 
     # Get modules per level
     levels = []
@@ -231,6 +241,10 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                 layout[m]['symbol'] = 'diamond'
                 layout[m]['size'] *= 0.8
                 text += f"<br><br>Partial alternatives in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
+            if gitmodules and not m in gitmodules and not m.startswith('numeric~'):
+                layout[m]['symbol'] = 'pentagon'
+                layout[m]['size'] *= 0.8
+                text += f"<br><br>{m} is a patched module"
 
             if 'category' in module_props[m] and module_props[m]['category']:
                 text += f"<br><br>Category:<br>    {as_paragraph(humanize_string_list(module_props[m]['category'], 50), 50, 4)}"
