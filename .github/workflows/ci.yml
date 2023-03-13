@@ -62,6 +62,11 @@ jobs:
           cd ../..
           $b2_executable tools/boostdep/build
 
+      - name: Symlink tools
+        working-directory: boost
+        run: |
+          for tool in "tools"/*/; do   tool_name=$(basename ${tool}); ln -sf "tools/${tool_name}" "libs/${tool_name}"; done
+
       - name: Generate visual report
         run: |
           python main.py -v --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report

@@ -220,6 +220,8 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
                                 break
 
             text += f'<b>{m}</b> (C++{module_props[m]["cxxstd_str"]})'
+            if os.path.exists(os.path.join(boost_root, 'tools', m)):
+                text += '<br><br>Boost Tool'
             if 'authors' in module_props[m]:
                 text += f'<br>    by <i>{as_paragraph(humanize_string_list(module_props[m]["authors"], 5), 50, 4)}</i>'
             if os.path.exists(os.path.join(boost_root, 'tools', m)):
