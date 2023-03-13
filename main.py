@@ -52,6 +52,13 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
     vprint(levels)
     vprint(graph)
 
+    # Buildable libraries
+    compiled_report = subprocess.check_output([boostdep, '--boost-root', boost_root, '--list-buildable']).decode('utf-8')
+    buildable = []
+    for line in compiled_report.splitlines():
+        buildable.append(line.strip())
+    vprint(f'buildable: {buildable}')
+
     # Calculate other module properties
     module_props = {}
     for level in levels:
@@ -215,6 +222,10 @@ def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
             text += f'<b>{m}</b> (C++{module_props[m]["cxxstd_str"]})'
             if 'authors' in module_props[m]:
                 text += f'<br>    by <i>{as_paragraph(humanize_string_list(module_props[m]["authors"], 5), 50, 4)}</i>'
+            if os.path.exists(os.path.join(boost_root, 'tools', m)):
+                text += '<br>    Boost Tool'
+            if m in buildable:
+                text += '<br>    Buildable Library'
             text += f'<br>'
 
             if 'description' in module_props[m]:
