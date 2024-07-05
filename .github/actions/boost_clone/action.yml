@@ -49,7 +49,7 @@ runs:
     # attempt to get boost from the cache before cloning it
     - name: boost cache
       id: cache-boost
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: boost
         key: ${{ steps.ctx.outputs.cache_hash }}
