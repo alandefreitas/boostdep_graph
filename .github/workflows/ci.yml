@@ -67,16 +67,52 @@ jobs:
         run: |
           for tool in "tools"/*/; do   tool_name=$(basename ${tool}); ln -sf "tools/${tool_name}" "libs/${tool_name}"; done
 
+      - name: Report corpus
+        uses: actions/cache@v4
+        id: report-corpus
+        with:
+          path: report.txt
+          key: corpus-${{ github.run_id }}
+          enableCrossOsArchive: true
+          restore-keys: |
+            corpus-
+
+      - name: Generate report
+        id: generate-report
+        run: |
+          set -x
+          boostdep_executable=./boost/dist/bin/boostdep
+          $boostdep_executable --boost-root ./boost --module-levels > report2.txt
+          if [ -f report.txt ]; then
+            if diff -q report.txt report2.txt > /dev/null 2>&1; then
+              echo "No changes in report"
+              cat report2.txt
+              echo "report-changed=false" >> $GITHUB_OUTPUT
+            else
+              echo "Changes in report"
+              set +e
+              diff report.txt report2.txt
+              set -e
+              echo "report-changed=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No previous report found"
+            cat report2.txt
+            echo "report-changed=true" >> $GITHUB_OUTPUT
+          fi          
+          mv report2.txt report.txt
+
       - name: Generate visual report
+        if: steps.generate-report.outputs.report-changed == 'true'
         run: |
           python main.py -v --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
 
       - name: Identify auto-commit
-        if: startswith(github.event.commits[0].message, 'Update Pages')
+        if: startswith(github.event.commits[0].message, 'Update Pages') && steps.generate-report.outputs.report-changed == 'true'
         run: echo "is-auto-commit=true" >> $GITHUB_ENV
 
       - name: Commit
-        if: env.is-auto-commit != true
+        if: env.is-auto-commit != true && steps.generate-report.outputs.report-changed == 'true'
         run: |
           cur_date=$(date +"%d %B, %Y")
           git_author=$(git log -n 1 --format='%an')
