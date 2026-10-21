@@ -145,9 +145,10 @@ export function createGraphView(svg, graph, layout, importance) {
   let fitK = 0.3;
 
   let inset = 0;
+  let insetBottom = 0;
   function size() {
     const r = svg.getBoundingClientRect();
-    return { w: Math.max(1, (r.width || 1) - inset), h: r.height || 1 };
+    return { w: Math.max(1, (r.width || 1) - inset), h: Math.max(1, (r.height || 1) - insetBottom) };
   }
 
   function applyCamera() {
@@ -363,7 +364,7 @@ export function createGraphView(svg, graph, layout, importance) {
     pointers.set(e.pointerId, localPoint(e));
     if (pointers.size === 1) { downTarget = e.target; moved = 0; }
     else moved = CLICK_SLOP + 1;
-    svg.setPointerCapture(e.pointerId);
+    try { svg.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     hideTooltip();
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
@@ -618,10 +619,16 @@ export function createGraphView(svg, graph, layout, importance) {
     else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
   }
 
-  /** Reserve `px` on the right (an overlaid details panel); fit and focus centre in what is left. */
-  function setInset(px) {
-    if (px === inset) return;
-    inset = px;
+  /**
+   * Reserve space covered by an overlaid details panel; fit and focus centre in what is left.
+   * A number reserves that many px on the right; {right, bottom} also reserves a bottom sheet.
+   */
+  function setInset(v) {
+    const right = typeof v === 'number' ? v : v.right || 0;
+    const bottom = typeof v === 'number' ? 0 : v.bottom || 0;
+    if (right === inset && bottom === insetBottom) return;
+    inset = right;
+    insetBottom = bottom;
     const f = computeFit();
     if (selId) focus(selId);
     else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }

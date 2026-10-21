@@ -34,7 +34,13 @@
   </div>
 </header>
 
+<div class="mbar" id="mbar">
+  <button type="button" id="m-legend" class="mbtn" aria-controls="legend" aria-expanded="false">Legend &amp; options</button>
+  <button type="button" id="m-view" class="mbtn">Full graph</button>
+</div>
+
 <main class="layout">
+  <section id="focus" class="focus" aria-label="Library neighborhood"></section>
   <aside id="legend" class="legend" aria-label="Legend and options"></aside>
   <section class="stage" id="stage">
     <div id="notice" class="notice" role="status" hidden></div>
@@ -48,6 +54,8 @@
   </section>
   <aside id="details" class="details" aria-label="Library details" hidden></aside>
 </main>
+<div id="scrim" class="scrim"></div>
+<footer id="foot" class="foot"></footer>
 
 <script src="data.js" charset="utf-8"></script>
 <script type="module" src="assets/app.js"></script>

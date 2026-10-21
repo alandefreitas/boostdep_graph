@@ -1,13 +1,7 @@
 // Details panel for the selected module.
 import { depsClosure, dependantsClosure, dependencyPath, extraNeeds } from './graph.js';
 import { stdClass } from './render.js';
-
-function h(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
+import { h, moduleName } from './dom.js';
 
 /**
  * @param {HTMLElement} root the <aside>
@@ -17,7 +11,7 @@ function h(tag, cls, text) {
 export function createDetails(root, graph, { onSelect, onClose }) {
   let shownKey = '';
   const level = id => graph.modules.get(id).level;
-  const name = id => graph.modules.get(id).name || id;
+  const name = id => moduleName(graph, id);
 
   function chipList(ids, sel, hint, withPath) {
     const wrap = h('div', 'chips');
