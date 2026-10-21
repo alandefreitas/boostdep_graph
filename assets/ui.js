@@ -2,7 +2,7 @@
 // a plain-words label and a switch. Also category and C++ standard filters, and Reset.
 import { DEFAULT_OPTIONS } from './state.js';
 import { relationGroups, visibleModules, expandStd, cxxstdOrder } from './graph.js';
-import { el as s, diamondGeom, badgeGeom } from './render.js';
+import { el as s, diamondGeom, badgeGeom, starPoints } from './render.js';
 import { h, stdClass, REL_OPTION, KIND_OPTION, BADGES, badgeOf } from './dom.js';
 
 // One chip per standard; 98 and 03 share the '03' chip.
@@ -17,11 +17,14 @@ const NODE_X = 34;
 function sample({ std = 'std-11', cls = '', r = 7, alt = false, badge = null, halo = false, edge = null, cx = edge ? NODE_X : SAMPLE_W / 2 } = {}) {
   const svg = sampleSvg();
   if (edge) s('path', { class: `edge ${edge}`, d: `M2,14 H${cx}` }, svg);
-  const g = s('g', { class: `node ${std} ${cls}`.trim(), transform: `translate(${cx},14)` }, svg);
+  const g = s('g', { class: `node ${std} ${cls}${alt ? ' alt' : ''}`.trim(), transform: `translate(${cx},14)` }, svg);
   if (halo) s('circle', { class: 'halo', r: r + 6 }, g);
   if (alt) {
-    const { side } = diamondGeom(r);
+    const { rr, side } = diamondGeom(r);
     s('rect', { class: 'shape diamond', rx: 2, x: -side / 2, y: -side / 2, width: side, height: side, transform: 'rotate(45)' }, g);
+    // Fun themes swap the diamond for a star ornament (CSS), as on the graph.
+    s('polygon', { class: 'orn star shape', points: starPoints(rr * 1.45) }, g);
+    s('circle', { class: 'orn star-core', r: rr * 0.44 }, g);
   } else s('circle', { class: 'shape', r }, g);
   if (badge) {
     const bg = badgeGeom(r, badge.angle);
@@ -45,10 +48,11 @@ function customSample(draw) {
  * @param {object} graph from buildGraph()
  * @param {(fn: (state: object) => void) => void} onChange mutate state inside fn (store.change)
  * @param {{onLayout?: () => void, onClose?: () => void}} [handlers] `onLayout` is called after the panel
- *   collapses or expands (the stage size changed); `onClose` adds a close button to the header (phone drawer).
- * @returns {{update: (state: object, orientation: 'horizontal'|'vertical') => void, isModified: () => boolean}}
+ *   collapses or expands (the stage size changed); `onClose` adds a close button to the header (phone drawer),
+ *   `onLeaveFun` is called by the "Back to normal" link of the fun-mode note.
+ * @returns {{update: (state: object, orientation: 'horizontal'|'vertical', fun?: object|null) => void, isModified: () => boolean}}
  */
-export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null } = {}) {
+export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null, onLeaveFun = null } = {}) {
   const switches = new Map();
   const counts = new Map();
 
@@ -296,7 +300,15 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   }
   g4.body.appendChild(catWrap);
 
-  panel.append(g1.d, g2.d, g3.d, g4.d);
+  // Fun-mode note (hidden in normal themes): says what is on and offers the way back.
+  const funNote = h('div', 'lg-fun');
+  funNote.hidden = true;
+  const funTitle = h('span', 'lg-fun-title');
+  const funBack = h('button', 'lg-fun-back', 'Back to normal');
+  funBack.type = 'button';
+  funBack.addEventListener('click', () => onLeaveFun?.());
+  funNote.append(h('span', 'lg-fun-star', '\u2605'), funTitle, funBack);
+  panel.append(funNote, g1.d, g2.d, g3.d, g4.d);
 
   // ---- filters ----
   const catIncluded = (set, key) => !set || [...set].some(c => c.toLowerCase() === key.toLowerCase());
@@ -318,9 +330,14 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   }
 
   // ---- state -> DOM ----
-  function update(state, orientation) {
+  function update(state, orientation, fun = null) {
     const o = state.options;
+    funNote.hidden = !fun;
+    if (fun) funTitle.textContent = `${fun.label} mode`;
+    layoutRow.classList.toggle('locked', Boolean(fun));
+    layoutRow.title = fun ? `${fun.label} mode uses the ${fun.orientation} layout` : '';
     for (const [key, b] of layoutBtns) {
+      b.disabled = Boolean(fun);
       b.setAttribute('aria-checked', String(key === orientation));
       b.tabIndex = key === orientation ? 0 : -1;
       b.classList.toggle('on', key === orientation);

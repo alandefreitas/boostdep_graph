@@ -105,3 +105,15 @@ test('layout key: explicit values round-trip, absent or unknown means auto', () 
   const hash = '#url&labels=0&cat=IO&std=11&layout=vertical';
   assert.equal(serializeHash(stateFrom(hash)), hash);
 });
+
+test('theme key: valid values round-trip, absent or unknown means the saved theme', () => {
+  assert.equal(createState().theme, null);
+  assert.equal(parseHash('#url').theme, null);
+  for (const t of ['dark', 'light', 'christmas']) assert.equal(serializeHash(stateFrom(`#url&theme=${t}`)), `#url&theme=${t}`);
+  assert.equal(serializeHash(stateFrom('#theme=christmas')), '#theme=christmas');
+  assert.equal(stateFrom('#url&theme=halloween').theme, null);
+  assert.equal(serializeHash(stateFrom('#url&theme=halloween')), '#url');
+  const hash = '#url&labels=0&cat=IO&std=11&layout=vertical&theme=christmas';
+  assert.equal(serializeHash(stateFrom(hash)), hash);
+  assert.equal(serializeHash(stateFrom('#url&tests=1')), '#url&tests=1');
+});

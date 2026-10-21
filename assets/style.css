@@ -670,3 +670,146 @@ code { font-family: var(--mono); }
   .f-cols { flex: none; min-height: 300px; }
   .f-col { max-height: none; overflow: visible; }
 }
+
+/* theme menu */
+.theme-wrap { position: relative; }
+.theme-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 150px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.theme-menu[hidden] { display: none; }
+.theme-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+.theme-item:hover, .theme-item:focus-visible { background: var(--card-2); }
+.theme-item:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.theme-glyph { width: 18px; text-align: center; }
+.theme-item[aria-checked="true"] { font-weight: 700; }
+.theme-item[aria-checked="true"]::after { content: "\2713"; margin-left: auto; padding-left: 12px; color: var(--orange); }
+
+/* node ornament parts: invisible unless a fun theme turns them on */
+.orn { display: none; }
+.orn:not(.star) { pointer-events: none; }
+.decor, .decor * { pointer-events: none; }
+.fun-bg { display: none; }
+.lg-fun { display: none; }
+.lg-seg-btn:disabled { cursor: default; }
+.lg-layout.locked .lg-seg-btn:not(.on) { opacity: .45; }
+
+/* ---------------- Christmas ---------------- */
+html.fun-christmas {
+  --page: #060b24;
+  --card: #0a1230;
+  --card-2: #131d46;
+  --border: rgba(196, 212, 255, .16);
+  --text: #eef2ff;
+  --text-dim: #bcc6e6;
+  --edge: rgba(214, 226, 255, .3);
+  --edge-dim: rgba(214, 226, 255, .06);
+  --node-ring: rgba(255, 255, 255, .6);
+  --label-halo: #0a1230;
+  --shadow: 0 8px 28px rgba(0, 0, 8, .6);
+  --std-03: #d62839;
+  --std-11: #2f6fe0;
+  --std-14: #1f9d55;
+  --std-17: #e9b949;
+  --std-20: #9b59b6;
+  --std-23: #dfe6f2;
+  --std-none: #f2f5fb;
+}
+.fun-christmas .pill.std.std-03, .fun-christmas .pill.std.std-20 { color: #fff; }
+.fun-christmas body { background: radial-gradient(120% 50% at 50% 0%, rgba(60, 80, 180, .3), transparent 70%), var(--page); }
+.fun-christmas .stage {
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(70, 90, 190, .35), transparent 70%),
+    radial-gradient(90% 40% at 50% 100%, rgba(150, 40, 60, .22), transparent 70%),
+    linear-gradient(180deg, #0b1440 0%, #070d2c 55%, #0a1230 100%);
+}
+.fun-christmas .fun-bg { display: block; position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.fun-bg i { position: absolute; display: block; border-radius: 50%; }
+.fun-bg .bokeh {
+  width: min(var(--s), 26vw);
+  height: min(var(--s), 26vw);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(var(--c), calc(var(--o) * var(--bk, 1) * 1.5)) 0 52%, rgba(var(--c), calc(var(--o) * var(--bk, 1))) 62%, rgba(var(--c), 0) 71%);
+  animation: bokeh-twinkle var(--t) ease-in-out var(--dl) infinite alternate;
+}
+.fun-bg .flake {
+  top: -12px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, .8);
+  animation: snow-fall var(--d) linear var(--dl) infinite;
+}
+@media (max-width: 767px) { .fun-bg { --bk: .55; } }
+@keyframes bokeh-twinkle { from { opacity: .45; } to { opacity: 1; } }
+@keyframes snow-fall { to { transform: translate3d(var(--dx), 110vh, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .fun-bg .bokeh { animation: none; }
+  .fun-bg .flake { animation: none; top: var(--y); }
+}
+
+.fun-christmas .tree-sil { fill: rgba(24, 120, 80, .12); stroke: rgba(70, 200, 130, .14); stroke-width: 1; }
+.fun-christmas .garland { fill: none; stroke: rgba(222, 232, 255, .55); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.fun-christmas .bulb { opacity: .95; }
+.fun-christmas .string { stroke: rgba(222, 232, 255, .6); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fun-christmas .ray { stroke: #ffd86b; stroke-width: 1.6; stroke-linecap: round; opacity: .8; vector-effect: non-scaling-stroke; }
+.fun-christmas .mat { fill: #a3202f; stroke: #f2dfb5; }
+
+.fun-christmas .edges-bg .edge { stroke: rgba(214, 226, 255, .42); stroke-width: 1; stroke-dasharray: 1 2.6; stroke-linecap: round; }
+.fun-christmas .edges-bg .edge.dim { stroke: var(--edge-dim); }
+.edges-glow { pointer-events: none; }
+.edges-glow .edge { stroke-width: 7; stroke-opacity: .16; stroke-dasharray: none; stroke-linecap: round; }
+
+.fun-christmas .node .shape { stroke-width: 1.2; }
+.fun-christmas .node.rel .shape { stroke-width: 3.5; }
+.fun-christmas .node.rel-self .shape { stroke-width: 4.5; }
+.fun-christmas .orn-gloss { display: inline; fill: url(#orn-gloss); }
+.fun-christmas .orn-cap { display: inline; fill: #e9b949; stroke: #7a5a14; stroke-width: .5; }
+.fun-christmas .node.alt .diamond, .fun-christmas .node.alt .orn-gloss, .fun-christmas .node.alt .orn-cap { display: none !important; }
+.fun-christmas .node.alt .star { display: inline; fill: url(#orn-gold); stroke-linejoin: round; }
+.fun-christmas .node.alt .star-core { display: inline; fill: var(--std-none); stroke: rgba(0, 0, 0, .4); stroke-width: .6; }
+.fun-christmas .node.std-03 .star-core { fill: var(--std-03); }
+.fun-christmas .node.std-11 .star-core { fill: var(--std-11); }
+.fun-christmas .node.std-14 .star-core { fill: var(--std-14); }
+.fun-christmas .node.std-17 .star-core { fill: var(--std-17); }
+.fun-christmas .node.std-20 .star-core { fill: var(--std-20); }
+.fun-christmas .node.std-23 .star-core { fill: var(--std-23); }
+.fun-christmas .node.rel .star { stroke-width: 3; }
+.fun-christmas .node.rel-self .star { stroke-width: 4; }
+.fun-christmas .node.rel-dep .star { stroke: var(--dep); }
+.fun-christmas .node.rel-tdep .star { stroke: var(--tdep); }
+.fun-christmas .node.rel-rdep .star { stroke: var(--rdep); }
+.fun-christmas .node.rel-trdep .star { stroke: var(--trdep); }
+.fun-christmas .node.rel-self .star { stroke: var(--orange); }
+
+.lg-fun {
+  align-items: center;
+  gap: 8px;
+  margin: 6px 10px 4px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 216, 107, .35);
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, rgba(214, 40, 57, .16), rgba(31, 157, 85, .16));
+  font-size: 12.5px;
+}
+.fun-christmas .lg-fun:not([hidden]) { display: flex; }
+.lg-fun-star { color: #ffd86b; }
+.lg-fun-title { font-weight: 700; }
+.lg-fun-back { margin-left: auto; padding: 0; border: 0; background: none; color: #ffd86b; text-decoration: underline; font-size: 12.5px; }

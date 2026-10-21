@@ -15,6 +15,7 @@ The page state lives in the URL hash, so views can be shared:
 - `#url&labels=0`: only options that differ from the default are stored (`key=0` or `key=1`)
 - `#&cat=IO,Math&std=11,14`: filter by category and C++ standard
 - `#url&layout=vertical`: vertical layout (foundations at the bottom); `layout=horizontal` forces the sideways one. Without it the layout is automatic: vertical on portrait screens, horizontal otherwise
+- `#url&theme=christmas`: the Christmas version (people say the graph looks like a Christmas tree, so here it is: vertical layout with a star, baubles, tinsel and gifts). `theme=dark` and `theme=light` also work. The theme menu (top right) remembers your choice; a `theme=` in the link overrides it for that visit, and the page writes `theme=` into the link for fun modes (Christmas) and keeps it when the link already had one. The theme is per visit, so Back in the browser history never switches it
 
 Option keys (`=0` or `=1`): `background`, `deps`, `tdeps`, `rdeps`, `trdeps`, `category`, `paths`, `colorStd`, `sizeImportance`, `stdAltMarker`, `buildableMarker`, `toolMarker`, `deprecatedMarker`, `proposedMarker`, `labels` (all on by default), `tests` and `examples` (off by default). `cat=` lists the categories that stay lit, `cat=-` means none, and `cat=` with no name means only libraries without a category. `std=` lists the standards that stay lit (`03` also covers 98).
 

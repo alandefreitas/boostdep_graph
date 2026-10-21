@@ -6,7 +6,7 @@
 <title>Boost Dependency Graph</title>
 <meta name="description" content="Interactive map of how the libraries in Boost depend on each other: select a library to see what it needs and who needs it.">
 <meta name="color-scheme" content="dark light">
-<script>try{if(localStorage.getItem('bdg-theme')==='light')document.documentElement.classList.remove('dark')}catch(e){}</script>
+<script>/* F = FUN_NAMES of assets/themes.js (class fun-<name>); keep them in sync */try{var F=['christmas'],m=/[#&]theme=([a-z]+)(&|$)/.exec(location.hash),t=m?m[1]:localStorage.getItem('bdg-theme'),c=document.documentElement.classList;if(t==='light')c.remove('dark');else if(F.indexOf(t)>=0)c.add('fun-'+t)}catch(e){}</script>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -16,6 +16,9 @@
     <symbol id="sym-tool" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" class="sym-bg"/><path d="M10.6 3.6a3 3 0 0 0-3.4 3.9L3.8 10.9a1.1 1.1 0 0 0 1.6 1.6l3.4-3.4a3 3 0 0 0 3.9-3.4L10.8 7 9.2 6.8 9 5.2z" class="sym-fill"/></symbol>
     <symbol id="sym-deprecated" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" class="sym-bg"/><circle cx="8" cy="8" r="4.6" class="sym-line sym-red"/><path d="m4.9 11.1 6.2-6.2" class="sym-line sym-red"/></symbol>
     <symbol id="sym-proposed" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" class="sym-bg"/><path d="M8 2.5C8.4 5.4 9.6 7.6 13 8 9.6 8.4 8.4 10.6 8 13.5 7.6 10.6 6.4 8.4 3 8 6.4 7.6 7.6 5.4 8 2.5z" class="sym-fill sym-orange"/></symbol>
+    <radialGradient id="orn-gloss" cx="34%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".9"/><stop offset=".16" stop-color="#fff" stop-opacity=".4"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".38"/></radialGradient>
+    <linearGradient id="orn-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0a8"/><stop offset=".5" stop-color="#f2b92e"/><stop offset="1" stop-color="#c58a12"/></linearGradient>
+    <radialGradient id="orn-glow"><stop offset="0" stop-color="#ffd86b" stop-opacity=".55"/><stop offset=".45" stop-color="#ffd86b" stop-opacity=".16"/><stop offset="1" stop-color="#ffd86b" stop-opacity="0"/></radialGradient>
   </defs>
 </svg>
 
@@ -30,7 +33,10 @@
   </div>
   <div class="topbar-right">
     <span id="stamp" class="stamp"></span>
-    <button id="theme" class="icon-btn" type="button" aria-label="Toggle light and dark theme" title="Toggle theme"></button>
+    <div class="theme-wrap">
+      <button id="theme" class="icon-btn" type="button" aria-label="Theme" title="Theme" aria-haspopup="menu" aria-expanded="false" aria-controls="theme-menu"></button>
+      <div id="theme-menu" class="theme-menu" role="menu" aria-label="Theme" hidden></div>
+    </div>
   </div>
 </header>
 
@@ -43,6 +49,7 @@
   <section id="focus" class="focus" aria-label="Library neighborhood"></section>
   <aside id="legend" class="legend" aria-label="Legend and options"></aside>
   <section class="stage" id="stage">
+    <div id="fun-bg" class="fun-bg" aria-hidden="true"></div>
     <div id="notice" class="notice" role="status" hidden></div>
     <svg id="graph" class="graph" role="img" aria-label="Boost library dependency graph"></svg>
     <div class="zoom-controls">

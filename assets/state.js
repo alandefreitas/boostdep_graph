@@ -2,6 +2,10 @@
 // cat=- means no category selected (empty set); cat= alone means only uncategorized modules (the '' sentinel).
 // Hash format: #<id>&key=0|1 (only options that differ from the default)&cat=IO,Math&std=11,14&layout=vertical
 // layout is absent when automatic (portrait window = vertical, otherwise horizontal).
+// theme (dark|light|christmas) is absent unless the link carries one: it overrides the saved theme for the visit.
+// The app writes it only for Christmas, or when the hash already had one, so normal users never see theme=dark.
+
+import { FUN_NAMES } from './themes.js';
 
 /** Every option key with its default. */
 export const DEFAULT_OPTIONS = Object.freeze({
@@ -24,11 +28,15 @@ export const DEFAULT_OPTIONS = Object.freeze({
   examples: false,
 });
 
+/** Every theme name: the two plain ones plus one per fun mode (themes.js). */
+export const THEMES = Object.freeze(['dark', 'light', ...FUN_NAMES]);
+
 export function createState() {
   return {
     selected: null,
     notFound: null,
     layout: null,
+    theme: null,
     options: { ...DEFAULT_OPTIONS },
     filters: { categories: null, cxxstd: null },
   };
@@ -49,11 +57,11 @@ function safeDecode(s) {
 /**
  * Parse a location hash into a plain object. Unknown option keys are ignored.
  * @param {string} hash e.g. "#url&tests=1&cat=IO,Math"
- * @returns {{selected: string|null, options: Record<string, boolean>, categories: Set<string>|null, cxxstd: Set<string>|null, layout: 'horizontal'|'vertical'|null}}
+ * @returns {{selected: string|null, options: Record<string, boolean>, categories: Set<string>|null, cxxstd: Set<string>|null, layout: 'horizontal'|'vertical'|null, theme: 'dark'|'light'|'christmas'|null}}
  */
 export function parseHash(hash) {
   const parts = String(hash || '').replace(/^#/, '').split('&').filter(Boolean);
-  const res = { selected: null, options: {}, categories: null, cxxstd: null, layout: null };
+  const res = { selected: null, options: {}, categories: null, cxxstd: null, layout: null, theme: null };
   for (const p of parts) {
     const eq = p.indexOf('=');
     if (eq < 0) {
@@ -65,6 +73,7 @@ export function parseHash(hash) {
     if (key === 'cat') res.categories = val === '-' ? new Set() : new Set(val.split(',').map(safeDecode));
     else if (key === 'std') res.cxxstd = new Set(splitList(val));
     else if (key === 'layout') res.layout = val === 'horizontal' || val === 'vertical' ? val : null;
+    else if (key === 'theme') res.theme = THEMES.includes(val) ? val : null;
     else if (Object.hasOwn(DEFAULT_OPTIONS, key) && (val === '0' || val === '1')) res.options[key] = val === '1';
   }
   return res;
@@ -83,6 +92,7 @@ export function serializeHash(state) {
   if (state.filters.categories) parts.push(`cat=${state.filters.categories.size ? list(state.filters.categories) : '-'}`);
   if (state.filters.cxxstd) parts.push(`std=${list(state.filters.cxxstd)}`);
   if (state.layout === 'horizontal' || state.layout === 'vertical') parts.push(`layout=${state.layout}`);
+  if (THEMES.includes(state.theme)) parts.push(`theme=${state.theme}`);
   return parts.length ? `#${parts.join('&')}` : '';
 }
 
@@ -103,6 +113,7 @@ export function applyParsed(state, parsed, knownIds) {
   state.options = { ...DEFAULT_OPTIONS, ...parsed.options };
   state.filters = { categories: parsed.categories, cxxstd: parsed.cxxstd };
   state.layout = parsed.layout;
+  state.theme = parsed.theme;
 }
 
 /**
@@ -121,6 +132,8 @@ export function createStore(knownIds) {
     applyParsed(state, parseHash(location.hash), knownIds);
     current = location.hash;
   }
+  // The theme is per visit: only the first load reads it from the URL (and the app's menu sets it later).
+  // History entries carry the theme they were created with, so reading it back would undo "Back to normal".
   function writeHash(push) {
     const next = serializeHash(state);
     if (next === (current === '#' ? '' : current)) return;
@@ -132,7 +145,10 @@ export function createStore(knownIds) {
   readHash();
   window.addEventListener('hashchange', () => {
     if (location.hash === current || (location.hash === '' && current === '')) return;
+    const theme = state.theme;
     readHash();
+    state.theme = theme;
+    writeHash(false);
     notify();
   });
 

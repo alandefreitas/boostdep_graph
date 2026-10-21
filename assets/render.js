@@ -21,6 +21,17 @@ export function diamondGeom(r) {
   return { rr, side: rr * 1.45 };
 }
 
+/** Points of a 5-point star with outer radius `R` (pointing up) and inner radius `R * inner`. */
+export function starPoints(R, inner = 0.45) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 ? R * inner : R;
+    pts.push(`${(Math.cos(a) * rad).toFixed(2)},${(Math.sin(a) * rad).toFixed(2)}`);
+  }
+  return pts.join(' ');
+}
+
 /** Badge symbol size and top-left offset for a node of radius r, at `angle` degrees (0 = right, clockwise). */
 export function badgeGeom(r, angle) {
   const size = Math.max(9, Math.min(13, r * 0.9));
@@ -42,7 +53,7 @@ export function badgeGeom(r, angle) {
  *            setLayout: (layout: Map<string, {x: number, y: number}>, orientation: 'horizontal'|'vertical') => void,
  *            setInset: (v: number|{right?: number, bottom?: number}) => void, fit: (animate?: boolean) => void,
  *            focus: (id: string) => void, focusSet: (ids: string[]) => void, refocus: () => void, settle: () => void, stats: () => object}}
- *   The view API. Assign `onSelect` to receive node clicks (`null` when the background is clicked).
+ *   The view API (also `setDecor(mode, redraw, state)` for fun-mode decorations; `state` is the state the redraw should show). Assign `onSelect` to receive node clicks (`null` when the background is clicked).
  */
 export function createGraphView(svg, graph, layout, importance, orientation = 'horizontal') {
   const maxImp = maxImportance(importance) || 1;
@@ -57,6 +68,11 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   let rMax = 14;
   let bounds = { x: 0, y: 0, w: 1, h: 1 };
   const pos = new Map();
+  // Fun-mode decorations: the active mode (see fun.js) and the extra margin it needs above and below the graph.
+  let decorMode = null;
+  let decorPad = { top: 0, bottom: 0, left: 0, right: 0 };
+  let decorAvoid = [];
+  let buildDecor = () => {};
   function computeGrid() {
     gx0 = Infinity; gx1 = -Infinity; gy0 = Infinity; gy1 = -Infinity;
     for (const p of layout.values()) {
@@ -80,13 +96,43 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     rMax = Math.min(14, (vertical ? Math.min(xStep, yStep) : yStep) * 0.45);
     for (const [id, p] of layout) pos.set(id, { x: p.x * xStep, y: p.y * yStep });
     bounds = { x: gx0 * xStep - 70, y: gy0 * yStep - 40, w: (gx1 - gx0) * xStep + 140, h: (gy1 - gy0) * yStep + 90 };
+    buildDecor();
+    bounds.y -= decorPad.top;
+    bounds.h += decorPad.top + decorPad.bottom;
+    bounds.x -= decorPad.left;
+    bounds.w += decorPad.left + decorPad.right;
   }
   computeGrid();
 
   const viewport = el('g', { class: 'viewport' }, svg);
+  const gDecorBack = el('g', { class: 'decor decor-back' }, viewport);
   const gBg = el('g', { class: 'edges-bg' }, viewport);
+  const gDecorMid = el('g', { class: 'decor decor-mid' }, viewport);
+  const gGlow = el('g', { class: 'edges-glow' }, viewport);
   const gHi = el('g', { class: 'edges-hi' }, viewport);
   const gNodes = el('g', { class: 'nodes' }, viewport);
+  const gDecorFront = el('g', { class: 'decor decor-front' }, viewport);
+
+  buildDecor = () => {
+    for (const g of [gDecorBack, gDecorMid, gDecorFront]) g.replaceChildren();
+    decorPad = { top: 0, bottom: 0, left: 0, right: 0 };
+    decorAvoid = [];
+    if (!decorMode || !vertical || size().w < 2) return;
+    const rows = new Map();
+    for (const p of pos.values()) {
+      const key = Math.round(p.y * 10);
+      const r = rows.get(key) ?? { y: p.y, x0: Infinity, x1: -Infinity };
+      r.x0 = Math.min(r.x0, p.x);
+      r.x1 = Math.max(r.x1, p.x);
+      rows.set(key, r);
+    }
+    const sorted = [...rows.values()].sort((a, b) => a.y - b.y);
+    const top = sorted[0];
+    const info = { rows: sorted, top: { x: (top.x0 + top.x1) / 2, y: top.y }, base: sorted[sorted.length - 1], rMax, unit: rMax * 2.4, k: Math.min(size().w / bounds.w, size().h / bounds.h) * 0.85 };
+    const pad = decorMode.decorate({ back: gDecorBack, mid: gDecorMid, front: gDecorFront }, info);
+    if (pad?.avoid) decorAvoid = pad.avoid;
+    if (pad) decorPad = { top: pad.top || 0, bottom: pad.bottom || 0, left: pad.left || 0, right: pad.right || 0 };
+  };
 
   const dCache = new Map();
   function pathD(a, b) {
@@ -127,6 +173,36 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     const label = el('text', { class: 'label' }, g);
     label.textContent = m.name || id;
     nodes.set(id, { id, m, g, body, halo, circle, diamond, badges, label, cls: '', r: 0, s: 1, alt: Boolean(m.stdAlternatives?.length), off: false });
+  }
+
+  /** Size a node's ornament parts (see ensureOrnaments) for its current radius. */
+  function sizeOrnaments(nd) {
+    const { r } = nd;
+    const sr = diamondGeom(r).rr * 1.45;
+    nd.star.setAttribute('points', starPoints(sr));
+    nd.starCore.setAttribute('r', (sr * 0.3).toFixed(2));
+    nd.gloss.setAttribute('r', r);
+    const cw = Math.max(2.4, r * 0.5);
+    nd.cap.setAttribute('x', (-cw / 2).toFixed(2));
+    nd.cap.setAttribute('y', (-r - cw * 0.55).toFixed(2));
+    nd.cap.setAttribute('width', cw.toFixed(2));
+    nd.cap.setAttribute('height', (cw * 0.8).toFixed(2));
+  }
+
+  /**
+   * Ornament parts, hidden unless a fun theme shows them (CSS): a glossy sheen, a cap, and a star for diamond nodes.
+   * Created the first time a fun mode is activated, so plain themes carry no extra elements.
+   */
+  function ensureOrnaments() {
+    for (const nd of nodes.values()) {
+      if (nd.star) continue;
+      const add = (tag, cls, attrs) => nd.body.insertBefore(el(tag, { class: cls, ...attrs }), nd.badges[0].u);
+      nd.star = add('polygon', 'orn star shape');
+      nd.starCore = add('circle', 'orn star-core');
+      nd.gloss = add('circle', 'orn orn-gloss');
+      nd.cap = add('rect', 'orn orn-cap', { rx: 0.8 });
+      if (nd.r) sizeOrnaments(nd);
+    }
   }
 
   // ---- camera ----
@@ -229,6 +305,8 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     cand.sort((a, b) => prio(b) - prio(a) || imp(b) - imp(a) || (a.id < b.id ? -1 : 1));
     const lh = LABEL_PX + 3;
     const labelBoxes = ctrlBox ? [ctrlBox] : [];
+    // Decorations (hanging ornaments, gifts) keep labels off them: labels try another side or drop out.
+    for (const [x0, y0, x1, y1] of decorAvoid) labelBoxes.push([tx + x0 * k, ty + y0 * k, tx + x1 * k, ty + y1 * k]);
     for (const nd of nodes.values()) nd.labelOn = false;
     if (labelsOn) {
       for (const nd of cand) {
@@ -551,6 +629,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
         nd.diamond.setAttribute('height', s);
         nd.diamond.setAttribute('transform', 'rotate(45)');
         nd.halo.setAttribute('r', (alt ? dr : r) + 6);
+        if (nd.star) sizeOrnaments(nd);
         for (const b of nd.badges) {
           const bg = badgeGeom(r, b.angle);
           b.u.setAttribute('x', bg.x);
@@ -626,9 +705,17 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
       }
     }
     gHi.replaceChildren();
+    gGlow.replaceChildren();
     const frag = document.createDocumentFragment();
-    for (const e of hi) frag.appendChild(el('path', { d: pathD(e.from, e.to), class: e.cls }));
+    // Fun themes get a wide, faint copy under each highlighted edge: a baked glow with no filter to re-raster while panning.
+    const glow = decorMode ? document.createDocumentFragment() : null;
+    for (const e of hi) {
+      const d = pathD(e.from, e.to);
+      frag.appendChild(el('path', { d, class: e.cls }));
+      glow?.appendChild(el('path', { d, class: e.cls }));
+    }
     gHi.appendChild(frag);
+    if (glow) gGlow.appendChild(glow);
   }
 
   new ResizeObserver(() => {
@@ -748,9 +835,24 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     relayout();
   }
 
+  /**
+   * Switch the fun-mode decorations (a mode from fun.js, or null). `redraw` false only stores the mode (stage hidden):
+   * the next relayout() draws it. Decorations live in the camera group, built once per relayout.
+   */
+  function setDecor(mode, redraw = true, state = null) {
+    decorMode = mode;
+    if (mode) ensureOrnaments();
+    if (redraw) {
+      if (state) lastState = state;
+      if (!selId) interacted = false;
+      relayout();
+    }
+  }
+
   layoutControls();
   fit();
   api.relayout = relayout;
+  api.setDecor = setDecor;
   api.setLayout = setLayout;
   api.setInset = setInset;
   // Debug/test hooks (not used by the app): label-placement stats and a synchronous settle().
