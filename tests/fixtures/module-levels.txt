@@ -1,0 +1,27 @@
+Module Levels:
+
+Level 0:
+    (unknown)
+    config
+    mp11
+    predef
+
+Level 1:
+    assert -> config(0)
+    type_traits -> config(0)
+
+Level 2:
+    throw_exception -> assert(1) config(0)
+
+Level 3:
+    core -> assert(1) config(0) throw_exception(2)
+
+Level 4:
+    regex -> (unknown)(0) assert(1) config(0) core(3) predef(0) throw_exception(2) type_traits(1)
+
+Level 5:
+    url -> assert(1) config(0) core(3) mp11(0) regex(4) throw_exception(2) type_traits(1)
+
+Level 6:
+    numeric~conversion -> config(0) core(3) mp11(0) throw_exception(2) type_traits(1)
+

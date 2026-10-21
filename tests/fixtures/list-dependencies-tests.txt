@@ -1,0 +1,10 @@
+assert -> config core
+config
+core -> assert config throw_exception type_traits
+mp11
+numeric~conversion -> config core mp11 regex throw_exception type_traits
+predef
+regex -> assert config core predef throw_exception type_traits
+throw_exception -> assert config
+type_traits -> config
+url -> assert config core mp11 predef regex throw_exception type_traits url

@@ -1,621 +1,474 @@
+#!/usr/bin/env python3
+"""Generate data.js for the Boost dependency explorer.
+
+Runs boostdep (and the depinst.py scanner shipped with it) against a Boost
+checkout and writes ``data.js``: the modules, their metadata and the
+library / test / example dependency edges.  Standard library only.
+"""
+
 import argparse
-from datetime import datetime
-import subprocess
+import importlib.util
 import json
 import os
-import plotly.graph_objects as go
+import re
+import subprocess
+import sys
+from datetime import date
 
-def generate_depgraph(boostdep, boost_root, libs, output, output_path=''):
-    report = subprocess.check_output([boostdep, '--boost-root', boost_root, '--module-levels']).decode('utf-8')
+CXXSTD_ORDER = ['98', '03', '11', '14', '17', '20', '23']
 
-    # Read constants
-    cxxstd_alternatives = generate_cxxstd_alternatives()
-    gitmodules = set()
-    gitmodules_path = os.path.join(boost_root, '.gitmodules')
-    if os.path.exists(gitmodules_path):
-        with open(gitmodules_path) as f:
-            for line in f.readlines():
-                prefix = '[submodule "'
-                if line.startswith(prefix):
-                    t = line[len(prefix):]
-                    p = t.find('"')
-                    if p != -1:
-                        print(t[:p])
-                        gitmodules.add(t[:p])
+CATEGORY_TYPOS = {
+    'programing': 'Programming',
+}
 
-    # Get modules per level
-    levels = []
-    graph = {}
-    for line in report.splitlines():
-        if line in ['', 'Module Levels:', '    (unknown)']:
-            continue
-        if line.startswith('Level '):
-            levels.append(list())
-            continue
-        if line.startswith('    '):
-            div = line.find(' -> ')
-            if div != -1:
-                levels[-1].append(line[4:div])
-                wdeps = line[div + 4:].split(' ')
-                deps = []
-                for wdep in wdeps:
-                    pos = wdep.rfind('(')
-                    if pos != -1:
-                        d = wdep[:pos]
-                        if d != '(unknown)':
-                            deps.append(wdep[:pos])
-                graph[line[4:div]] = deps
-            else:
-                levels[-1].append(line[4:])
-                graph[line[4:]] = []
+EXAMPLE_DIRS = ['example', 'examples']
 
-    vprint(levels)
-    vprint(graph)
-
-    # Buildable libraries
-    compiled_report = subprocess.check_output([boostdep, '--boost-root', boost_root, '--list-buildable']).decode('utf-8')
-    buildable = []
-    for line in compiled_report.splitlines():
-        buildable.append(line.strip())
-    vprint(f'buildable: {buildable}')
-
-    # Calculate other module properties
-    module_props = {}
-    for level in levels:
-        for m in level:
-            module_props[m] = {}
-
-            # Reverse deps
-            reverse = []
-            for [other, other_deps] in graph.items():
-                if m in other_deps:
-                    reverse.append(other)
-            module_props[m]['reverse'] = reverse
-
-            # Level
-            for i in range(len(levels)):
-                if m in levels[i]:
-                    module_props[m]['level'] = i
-                    break
-
-            # Transitive dependencies
-            cur_scan = graph[m]
-            transitive = []
-            while cur_scan:
-                next_scan = []
-                for d in cur_scan:
-                    for e in graph[d]:
-                        if e not in transitive and e not in cur_scan:
-                            next_scan.append(e)
-                transitive += cur_scan
-                cur_scan = next_scan
-            module_props[m]['transitive'] = list(set(transitive))
-
-            # cxxstd supported, from the meta files
-            meta_path = os.path.join(boost_root, 'libs', m, 'meta', 'libraries.json')
-            if os.path.exists(meta_path):
-                with open(meta_path) as f:
-                    data = json.load(f)
-                    if 'description' in data:
-                        module_props[m]['description'] = data['description']
-
-                    if 'category' in data:
-                        module_props[m]['category'] = data['category']
-
-                    if 'authors' in data:
-                        if type(data['authors']) is list:
-                            module_props[m]['authors'] = data['authors']
-                        elif data['authors'] != '':
-                            module_props[m]['authors'] = [data['authors']]
-                    elif 'author' in data:
-                        if type(data['author']) is list:
-                            module_props[m]['authors'] = data['author']
-                        else:
-                            module_props[m]['authors'] = [data['author']]
-
-                    if 'cxxstd' in data:
-                        module_props[m]['cxxstd'] = cxxstd_to_int(data['cxxstd'])
-                        module_props[m]['cxxstd_str'] = data['cxxstd']
-                    elif type(data) is list:
-                        max_cxxstd = 1998
-                        has_cxxstd = False
-                        for d in data:
-                            if 'cxxstd' in d:
-                                max_cxxstd = max(max_cxxstd, cxxstd_to_int(d['cxxstd']))
-                                has_cxxstd = True
-                        if has_cxxstd:
-                            module_props[m]['cxxstd'] = max_cxxstd
-                            module_props[m]['cxxstd_str'] = cxxstd_to_string(max_cxxstd)
-            if 'cxxstd' not in module_props[m]:
-                inferred_cxxstd = 1998
-                for dep in graph[m]:
-                    if 'cxxstd' in module_props[dep]:
-                        inferred_cxxstd = max(inferred_cxxstd, module_props[dep]['cxxstd'])
-                module_props[m]['cxxstd'] = inferred_cxxstd
-                module_props[m]['cxxstd_str'] = cxxstd_to_string(inferred_cxxstd)
-
-    for level in reversed(levels):
-        for m in level:
-            # Transitive reverse dependencies
-            cur_scan = module_props[m]['reverse']
-            transitive = []
-            while cur_scan:
-                next_scan = []
-                for d in cur_scan:
-                    for e in module_props[d]['reverse']:
-                        if e not in transitive and e not in cur_scan:
-                            next_scan.append(e)
-                transitive += cur_scan
-                cur_scan = next_scan
-            module_props[m]['reverse_transitive'] = list(set(transitive))
-
-    # Define layout for each module
-    max_level_size = 0
-    for level in levels:
-        max_level_size = max(max_level_size, len(level))
-
-    max_n_reverse_transitive = 0
-    for m in graph.keys():
-        max_n_reverse_transitive = max(max_n_reverse_transitive, len(module_props[m]['reverse_transitive']))
-
-    layout = {}
-    for i in range(len(levels)):
-        level = levels[i]
-        h = 1 + max_level_size - len(level) / 2
-        for m in level:
-            layout[m] = {}
-            layout[m]['x'] = i
-            layout[m]['y'] = h
-            h += 1
-            layout[m]['color'] = module_props[m]['cxxstd']
-            layout[m]['size'] = 15 + 30 * len(module_props[m]['reverse_transitive']) / max_n_reverse_transitive
-            layout[m]['level'] = i
-
-            layout[m]['border'] = 'black'
-            text = f''
-            for lib in libs:
-                if m == lib:
-                    layout[m]['border'] = "rgb(0, 200, 0)"
-                    break
-                elif m in graph[lib]:
-                    layout[m]['border'] = "rgb(255, 70, 0)"
-                    text = f'<b>Direct dependency of {lib}</b><br><br>'
-                    break
-                elif m in module_props[lib]['transitive']:
-                    layout[m]['border'] = "rgb(255, 190, 100)"
-                    path = [m]
-                    for j in range(i + 1, len(levels)):
-                        if path[-1] in graph[lib]:
-                            break
-                        for lm in levels[j]:
-                            if path[-1] in graph[lm] and lm in module_props[lib]['transitive']:
-                                path.append(lm)
-                                break
-                    path.append(lib)
-                    text = f'<b>Transitive dependency of {lib}</b>:<br>    {as_paragraph(" -> ".join(path), 50, 4)}<br><br>'
-                    break
-                elif m in module_props[lib]['reverse']:
-                    layout[m]['border'] = "rgb(0, 70, 255)"
-                    text = f'<b>Reverse dependency of {lib}</b><br><br>'
-                    break
-                elif m in module_props[lib]['reverse_transitive']:
-                    layout[m]['border'] = "rgb(100, 190, 255)"
-                    path = [m]
-                    for j in range(i - 1, -1, -1):
-                        if path[-1] in module_props[lib]['reverse']:
-                            break
-                        for lm in levels[j]:
-                            if path[-1] in module_props[lm]['reverse'] and lm in module_props[lib]['reverse_transitive']:
-                                path.append(lm)
-                                break
-                    path.append(lib)
-                    text = f'<b>Transitive reverse dependency of {lib}</b>:<br>    {as_paragraph(" -> ".join(reversed(path)), 50, 4)}<br><br>'
-                    break
-                elif 'category' in module_props[m] and 'category' in module_props[lib]:
-                    for this_cat in module_props[m]['category']:
-                        for that_cat in module_props[lib]['category']:
-                            if this_cat.lower() == that_cat.lower():
-                                layout[m]['border'] = "rgb(0, 80, 0)"
-                                text = f'{m} and {lib} are both in the <b>{this_cat.lower()}</b> category<br><br>'
-                                break
-
-            text += f'<b>{m}</b> (C++{module_props[m]["cxxstd_str"]})'
-            if os.path.exists(os.path.join(boost_root, 'tools', m)):
-                text += '<br><br>Boost Tool'
-            if 'authors' in module_props[m]:
-                text += f'<br>    by <i>{as_paragraph(humanize_string_list(module_props[m]["authors"], 5), 50, 4)}</i>'
-            if os.path.exists(os.path.join(boost_root, 'tools', m)):
-                text += '<br>    Boost Tool'
-            if m in buildable:
-                text += '<br>    Buildable Library'
-            text += f'<br>'
-
-            if 'description' in module_props[m]:
-                text += f'{as_paragraph(module_props[m]["description"], 80)}<br>'
-
-            if module_props[m]['transitive']:
-                deps = sorted(module_props[m]['transitive'], key=lambda d: module_props[d]['level'])
-                text = f"{text}<br>Dependencies ({len(deps)}):<br>    {as_paragraph(humanize_string_list(deps, 200), 50, 4)}"
-            if graph[m]:
-                deps = sorted(graph[m], key=lambda d: module_props[d]['level'], reverse=True)
-                text = f"{text}<br>Direct dependencies ({len(deps)}):<br>    {as_paragraph(humanize_string_list(deps, 200), 50, 4)}<br>"
-
-            if module_props[m]['reverse_transitive']:
-                deps = sorted(module_props[m]['reverse_transitive'], key=lambda d: module_props[d]['level'],
-                              reverse=True)
-                text = f"{text}<br>Dependants ({len(deps)}):<br>    {as_paragraph(humanize_string_list(deps, 20), 50, 4)}"
-            if module_props[m]['reverse']:
-                deps = sorted(module_props[m]['reverse'], key=lambda d: module_props[d]['level'])
-                text = f"{text}<br>Direct Dependants ({len(deps)}):<br>    {as_paragraph(humanize_string_list(deps, 20), 50, 4)}"
-
-            layout[m]['symbol'] = 'circle'
-            if m in cxxstd_alternatives and cxxstd_alternatives[m]:
-                # https://plotly.com/python/marker-style/#custom-marker-symbols
-                layout[m]['symbol'] = 'diamond'
-                layout[m]['size'] *= 0.8
-                text += f"<br><br>Partial alternatives in the C++ standard library:<br>    {as_paragraph(humanize_string_list(cxxstd_alternatives[m], 50), 50, 4)}"
-            if gitmodules and not m in gitmodules and not m.startswith('numeric~'):
-                layout[m]['symbol'] = 'pentagon'
-                layout[m]['size'] *= 0.8
-                text += f"<br><br>{m} is a patched module"
-
-            if 'category' in module_props[m] and module_props[m]['category']:
-                text += f"<br><br>Category:<br>    {as_paragraph(humanize_string_list(module_props[m]['category'], 50), 50, 4)}"
-
-            layout[m]['text'] = text
-
-    # Arrows
-    fig = go.Figure()
-    x = []
-    y = []
-    for [m, deps] in graph.items():
-        for d in deps:
-            x.append(layout[m]['x'])
-            y.append(layout[m]['y'])
-            x.append(layout[d]['x'])
-            y.append(layout[d]['y'])
-            x.append(None)
-            y.append(None)
-    edges_trace = go.Scatter(x=x, y=y,
-                             mode='lines',
-                             line_color="rgb(100, 100, 100)",
-                             opacity=0.4,
-                             line_width=0.3)
-    fig.add_trace(edges_trace)
-
-    # Arrows for specified library
-    if isinstance(libs, str):
-        if libs:
-            libs = [libs]
-        else:
-            libs = []
-    for lib in libs:
-        # Direct deps
-        x = []
-        y = []
-        for d in graph[lib]:
-            x.append(layout[lib]['x'])
-            y.append(layout[lib]['y'])
-            x.append(layout[d]['x'])
-            y.append(layout[d]['y'])
-            x.append(None)
-            y.append(None)
-        edges_trace = go.Scatter(x=x, y=y,
-                                 mode='lines',
-                                 line_color="rgb(255, 70, 0)",
-                                 opacity=0.8,
-                                 line_width=2.0,
-                                 )
-        fig.add_trace(edges_trace)
-
-        # Transitive deps
-        x = []
-        y = []
-        for d0 in module_props[lib]['transitive']:
-            for d1 in graph[d0]:
-                x.append(layout[d0]['x'])
-                y.append(layout[d0]['y'])
-                x.append(layout[d1]['x'])
-                y.append(layout[d1]['y'])
-                x.append(None)
-                y.append(None)
-        edges_trace = go.Scatter(x=x, y=y,
-                                 mode='lines',
-                                 line_color="rgb(255, 190, 100)",
-                                 opacity=0.8,
-                                 line_width=2.0,
-                                 )
-        fig.add_trace(edges_trace)
-
-        # Rev direct deps
-        x = []
-        y = []
-        for d in module_props[lib]['reverse']:
-            x.append(layout[lib]['x'])
-            y.append(layout[lib]['y'])
-            x.append(layout[d]['x'])
-            y.append(layout[d]['y'])
-            x.append(None)
-            y.append(None)
-        edges_trace = go.Scatter(x=x, y=y,
-                                 mode='lines',
-                                 line_color="rgb(0, 70, 255)",
-                                 opacity=0.8,
-                                 line_width=2.0,
-                                 )
-        fig.add_trace(edges_trace)
-
-        # Transitive deps
-        x = []
-        y = []
-        for d0 in module_props[lib]['reverse_transitive']:
-            for d1 in module_props[d0]['reverse']:
-                x.append(layout[d0]['x'])
-                y.append(layout[d0]['y'])
-                x.append(layout[d1]['x'])
-                y.append(layout[d1]['y'])
-                x.append(None)
-                y.append(None)
-        edges_trace = go.Scatter(x=x, y=y,
-                                 mode='lines',
-                                 line_color="rgb(100, 190, 255)",
-                                 opacity=0.8,
-                                 line_width=2.0,
-                                 )
-        fig.add_trace(edges_trace)
-
-    # Scatter
-    max_cxxstd = 1000
-    min_cxxstd = 3000
-    for [m, ps] in module_props.items():
-        if 'cxxstd' in ps:
-            max_cxxstd = max(max_cxxstd, ps['cxxstd'])
-            min_cxxstd = min(min_cxxstd, ps['cxxstd'])
-    cxxstd03f = (2003 - min_cxxstd) / (max_cxxstd - min_cxxstd)
-    cxxstd11f = (2011 - min_cxxstd) / (max_cxxstd - min_cxxstd)
-    scatter_trace = go.Scatter(x=[xy['x'] for xy in layout.values()], y=[xy['y'] for xy in layout.values()],
-                               text=[k for k in layout.keys()],
-                               hovertext=[xy['text'] for xy in layout.values()],
-                               mode='markers+text',
-                               marker_color=[xy['color'] for xy in layout.values()],
-                               marker_colorscale=[[0, "rgb(150, 0, 0)"], [cxxstd03f, "rgb(255, 25, 25)"],
-                                                  [cxxstd11f, "rgb(100, 100, 255)"],
-                                                  [1.0, "rgb(0, 255, 0)"]],
-                               marker_opacity=0.9,
-                               marker_size=[xy['size'] for xy in layout.values()],
-                               marker_line_width=5,
-                               marker_line_color=[xy['border'] for xy in layout.values()],
-                               marker_symbol=[xy['symbol'] for xy in layout.values()],
-                               marker=dict(
-                                   colorbar=dict(
-                                       title="Min. Standard",
-                                       tickvals=[1998, 2003, 2011, 2014, 2017, 2020, 2023],
-                                       ticktext=['C++98', 'C++03', 'C++11', 'C++14', 'C++17', 'C++20', 'C++23'],
-                                   )),
-                               opacity=1.0,
-                               textposition="bottom center",
-                               textfont=dict(
-                                   size=14
-                               ))
-    fig.add_trace(scatter_trace)
-    fig.update_traces(hovertemplate="<br>".join([
-        "%{hovertext}<extra></extra>"
-    ]))
-
-    links = []
-    if output == 'report':
-        for m in graph.keys():
-            if not libs:
-                href = f'libs/{m}.html'
-            elif m not in libs:
-                href = f'../libs/{m}.html'
-            else:
-                href = '../index.html'
-            links.append(dict(x=layout[m]['x'],
-                              y=layout[m]['y'],
-                              text=f'<a href="{href}">        </a>',
-                              showarrow=False,
-                              xanchor='center',
-                              yanchor='middle',
-                              ))
-
-    date_time = datetime.now()
-    fig.update_layout(title=f'Boost Module Dependencies: Visual Report ({date_time.strftime("%d %B, %Y")})',
-                      xaxis_title="Level",
-                      yaxis=go.layout.YAxis(
-                          title='Library',
-                          showticklabels=False),
-                      yaxis_zeroline=False, xaxis_zeroline=False,
-                      showlegend=False,
-                      annotations=links)
-
-    if output == 'serve':
-        fig.show()
-    else:
-        if output_path in ['', '.']:
-            output_path = 'index.html'
-        elif os.path.exists(output_path) and os.path.isdir(output_path):
-            output_path = os.path.join(output_path, 'index.html')
-        elif not os.path.exists(output_path):
-            p = output_path.rfind('/')
-            if p != -1:
-                last_path_segment = output_path[p + 1:]
-            else:
-                last_path_segment = output_path
-            if last_path_segment.find('.') == -1:
-                output_path = os.path.join(output_path, 'index.html')
-        try:
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        except FileNotFoundError:
-            # don't need to create dir
-            pass
-        fig.write_html(output_path)
-
-        # Huge workaround to force links in the html
-
-        def rreplace(s, old, new, occurrence):
-            li = s.rsplit(old, occurrence)
-            return new.join(li)
-
-        with open(output_path, 'r') as html_file:
-            html = html_file.read()
-            html = rreplace(html, '</script>',
-                            "</script><script>const AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly = document.querySelectorAll('text.annotation-text'); AnnotationElementsWhoseLinksHaveBeenRemovedByPlotly.forEach(element => { const childElement = element.querySelector('a'); if (!childElement) {  return; } const dataUnformatted = element.getAttribute('data-unformatted'); if (!dataUnformatted) { return; } const hrefValue = dataUnformatted.match(/href=\"([^&]*)\"/)[1]; if (!hrefValue) { return; } childElement.setAttribute('href', hrefValue); childElement.removeAttribute('target'); }); </script>",
-                            1)
-        with open(output_path, 'w') as html_file:
-            html_file.write(html)
-            html_file.close()
-
-    return graph.keys()
-
-
-def cxxstd_to_int(cxxstd):
-    if cxxstd == '98':
-        return 1998
-    if cxxstd == '03':
-        return 2003
-    if cxxstd == '11':
-        return 2011
-    if cxxstd == '14':
-        return 2014
-    if cxxstd == '17':
-        return 2017
-    if cxxstd == '20':
-        return 2020
-    if cxxstd == '23':
-        return 2023
-
-
-def cxxstd_to_string(cxxstd):
-    if cxxstd == 1998:
-        return '98'
-    if cxxstd == 2003:
-        return '03'
-    if cxxstd == 2011:
-        return '11'
-    if cxxstd == 2014:
-        return '14'
-    if cxxstd == 2017:
-        return '17'
-    if cxxstd == 2020:
-        return '20'
-    if cxxstd == 2023:
-        return '23'
-
-
-def humanize_string_list(ls, max_els):
-    ln = len(ls)
-    if ln == 1:
-        return ls[0]
-    elif ln == 2:
-        return f'{ls[0]} and {ls[1]}'
-    ls = ls[:max_els]
-    text = ''
-    for l in ls[:-1]:
-        text += l + ', '
-    if ln <= len(ls) and len(ls) != 1:
-        text += 'and '
-    text += ls[-1]
-    if ln > len(ls):
-        text += f', and {ln - len(ls)} more'
-    return text
-
-
-def as_paragraph(s, max_col, indent=0):
-    r = ''
-    c = 0
-    for w in s.split(' '):
-        if c + len(w) > max_col:
-            r += '<br>' + ' ' * indent
-            c = 0
-        r += w
-        r += ' '
-        c += len(w) + 1
-    return r
-
+CXXSTD_ALTERNATIVES = {
+    'tuple': ['std::tuple'],
+    'config': ['feature test macros'],
+    'move': ['r-value references'],
+    'container_hash': ['std::hash'],
+    'variant': ['std::variant'],
+    'variant2': ['std::variant'],
+    'optional': ['std::optional'],
+    'system': ['std::system_error', 'std::expected'],
+    'outcome': ['std::expected'],
+    'smart_ptr': ['std::smart_ptr'],
+    'regex': ['std::regex'],
+    'chrono': ['std::chrono'],
+    'ratio': ['std::ratio'],
+    'function': ['std::function'],
+    'type_index': ['std::type_index'],
+    'bind': ['std::bind'],
+    'array': ['std::array'],
+    'atomic': ['std::atomic'],
+    'any': ['std::any'],
+    'container': ['std::map', 'std::set', 'std::vector', 'std::list', 'PMR'],
+    'dynamic_bitset': ['std::vector<bool>'],
+    'concept_check': ['concepts'],
+    'function_types': ['std::invoke_result', '<type_traits>'],
+    'range': ['std::ranges'],
+    'format': ['std::format'],
+    'thread': ['std::thread'],
+    'locale': ['std::locale'],
+    'coroutine': ['coroutines'],
+    'coroutine2': ['coroutines'],
+    'algorithm': ['<algorithm>'],
+    'random': ['<random>'],
+    'sort': ['std::sort'],
+    'foreach': ['range-based for loops'],
+    'filesystem': ['std::filesystem'],
+    'lambda': ['lambdas'],
+    'typeof': ['decltype', 'auto'],
+    'date_time': ['std::chrono'],
+}
 
 verbose = 0
 
-def generate_cxxstd_alternatives():
-    cxxstd_alternatives = {}
-    cxxstd_alternatives['tuple'] = ['std::tuple']
-    cxxstd_alternatives['config'] = ['feature test macros']
-    cxxstd_alternatives['move'] = ['r-value references']
-    cxxstd_alternatives['container_hash'] = ['std::hash']
-    cxxstd_alternatives['variant'] = ['std::variant']
-    cxxstd_alternatives['variant2'] = ['std::variant']
-    cxxstd_alternatives['optional'] = ['std::optional']
-    cxxstd_alternatives['system'] = ['std::system_error', 'std::expected']
-    cxxstd_alternatives['outcome'] = ['std::expected']
-    cxxstd_alternatives['smart_ptr'] = ['std::smart_ptr']
-    cxxstd_alternatives['regex'] = ['std::regex']
-    cxxstd_alternatives['chrono'] = ['std::chrono']
-    cxxstd_alternatives['ratio'] = ['std::ratio']
-    cxxstd_alternatives['function'] = ['std::function']
-    cxxstd_alternatives['type_index'] = ['std::type_index']
-    cxxstd_alternatives['bind'] = ['std::bind']
-    cxxstd_alternatives['array'] = ['std::array']
-    cxxstd_alternatives['atomic'] = ['std::atomic']
-    cxxstd_alternatives['any'] = ['std::any']
-    cxxstd_alternatives['container'] = ['std::map', 'std::set', 'std::vector', 'std::list', 'PMR']
-    cxxstd_alternatives['dynamic_bitset'] = ['std::vector<bool>']
-    cxxstd_alternatives['concept_check'] = ['concepts']
-    cxxstd_alternatives['function_types'] = ['std::invoke_result', '<type_traits>']
-    cxxstd_alternatives['range'] = ['std::ranges']
-    cxxstd_alternatives['format'] = ['std::format']
-    cxxstd_alternatives['thread'] = ['std::thread']
-    cxxstd_alternatives['locale'] = ['std::locale']
-    cxxstd_alternatives['coroutine'] = ['coroutines']
-    cxxstd_alternatives['coroutine2'] = ['coroutines']
-    cxxstd_alternatives['algorithm'] = ['<algorithm>']
-    cxxstd_alternatives['random'] = ['<random>']
-    cxxstd_alternatives['sort'] = ['std::sort']
-    cxxstd_alternatives['foreach'] = ['range-based for loops']
-    cxxstd_alternatives['filesystem'] = ['std::filesystem']
-    cxxstd_alternatives['lambda'] = ['lambdas']
-    cxxstd_alternatives['typeof'] = ['decltype', 'auto']
-    cxxstd_alternatives['date_time'] = ['std::chrono']
-
-    return cxxstd_alternatives
 
 def vprint(*args):
     if verbose >= 1:
         print(*args)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Installs the dependencies needed to test a Boost library.')
+class GeneratorError(Exception):
+    pass
 
-    # Main parameters
-    parser.add_argument('--boost-root', help="the directory of the boost installation", default='.')
-    parser.add_argument('--boostdep', help="the path to the boostdep executable", default='boostdep')
-    parser.add_argument('--output', help='output format', choices=['serve', 'html', 'report'], default='serve')
-    parser.add_argument('--output_path', help='output directory or file', default='')
 
-    # Graph type
-    parser.add_argument('-l', '--libs', help="draw dependencies the given libraries", nargs='+', default=[])
+# ---------------------------------------------------------------------------
+# Pure parsing
+# ---------------------------------------------------------------------------
 
-    # Logging
-    parser.add_argument('-v', '--verbose', help='enable verbose output', action='count', default=0)
-    parser.add_argument('-q', '--quiet', help='quiet output (opposite of -v)', action='count', default=0)
+_DEP_TOKEN = re.compile(r'^(.*)\((\d+)\)$')
 
-    args = parser.parse_args()
+
+def parse_module_levels(text):
+    """Parse ``boostdep --module-levels``.
+
+    Returns ``(levels, edges)``: ``levels`` maps module id to its level and
+    ``edges`` maps module id to the list of its direct library dependencies.
+    """
+    levels = {}
+    edges = {}
+    level = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in ('', 'Module Levels:', '(unknown)'):
+            continue
+        m = re.match(r'^Level (\d+):$', line)
+        if m:
+            level = int(m.group(1))
+            continue
+        if not line.startswith('    ') or level is None:
+            continue
+        if ' -> ' in line or stripped.endswith(' ->'):
+            name, _, rest = stripped.partition(' ->')
+        else:
+            name, rest = stripped, ''
+        deps = []
+        for token in rest.split():
+            m = _DEP_TOKEN.match(token)
+            dep = m.group(1) if m else token
+            if dep and dep != '(unknown)':
+                deps.append(dep)
+        levels[name] = level
+        edges[name] = deps
+    return levels, edges
+
+
+def parse_list_dependencies(text):
+    """Parse ``boostdep --list-dependencies``: ``name -> dep dep ...``."""
+    result = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        name, _, rest = line.strip().partition(' ->')
+        deps = [d for d in rest.split() if d != '(unknown)']
+        result[name] = deps
+    return result
+
+
+def parse_list_buildable(text):
+    return {line.strip() for line in text.splitlines() if line.strip()}
+
+
+def parse_gitmodules_paths(text):
+    return [m.group(1) for m in
+            (re.match(r'\s*path\s*=\s*(.*?)\s*$', line) for line in text.splitlines())
+            if m]
+
+
+def normalize_cxxstd(value):
+    """Normalise a meta ``cxxstd`` value to one of CXXSTD_ORDER, or None."""
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if s.startswith('c++'):
+        s = s[3:]
+    s = {'0x': '11', '1y': '14', '1z': '17', '2a': '20', '2b': '23'}.get(s, s)
+    if len(s) == 4 and s.isdigit():
+        s = s[2:]
+    return s if s in CXXSTD_ORDER else None
+
+
+def max_cxxstd(values):
+    known = [v for v in values if v in CXXSTD_ORDER]
+    return max(known, key=CXXSTD_ORDER.index) if known else None
+
+
+def normalize_categories(value):
+    """Strip, fix typos, capitalise the first letter only, dedupe and sort."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    result = set()
+    for item in value:
+        s = str(item).strip()
+        if not s:
+            continue
+        s = CATEGORY_TYPOS.get(s.lower(), s)
+        result.add(s[0].upper() + s[1:])
+    return sorted(result)
+
+
+def normalize_authors(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    return [str(a).strip() for a in value if str(a).strip()]
+
+
+def module_meta(meta, module_id):
+    """Reduce parsed meta/libraries.json (dict or list) to the fields we use."""
+    entries = meta if isinstance(meta, list) else [meta]
+    entries = [e for e in entries if isinstance(e, dict)]
+    if not entries:
+        return {}
+    key = module_id.replace('~', '/')
+    entry = next((e for e in entries if e.get('key') == key), entries[0])
+    authors = entry['authors'] if 'authors' in entry else entry.get('author')
+    return {
+        'name': entry.get('name') or None,
+        'description': ' '.join(str(entry.get('description') or '').split()),
+        'authors': normalize_authors(authors),
+        'categories': normalize_categories(entry.get('category')),
+        'cxxstd': max_cxxstd(normalize_cxxstd(e.get('cxxstd')) for e in entries),
+        'deprecated': entry.get('status') == 'deprecated',
+    }
+
+
+# ---------------------------------------------------------------------------
+# I/O
+# ---------------------------------------------------------------------------
+
+def run_boostdep(boostdep, boost_root, *args):
+    cmd = [boostdep, '--boost-root', boost_root, *args]
+    vprint('run:', ' '.join(cmd))
+    try:
+        out = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise GeneratorError(f'boostdep not found: {boostdep}')
+    except subprocess.CalledProcessError as e:
+        raise GeneratorError(f'{" ".join(cmd)} failed: {e.stderr.decode("utf-8", "replace").strip()}')
+    return out.stdout.decode('utf-8')
+
+
+def read_gitmodules_paths(boost_root):
+    path = os.path.join(boost_root, '.gitmodules')
+    if not os.path.isfile(path):
+        raise GeneratorError(f'.gitmodules not found in {boost_root}')
+    with open(path, encoding='utf-8') as f:
+        return parse_gitmodules_paths(f.read())
+
+
+def read_meta(boost_root, module_id):
+    """Meta fields of a module, or {} when it has no meta/libraries.json."""
+    path = os.path.join(boost_root, 'libs', *module_id.split('~'), 'meta', 'libraries.json')
+    if not os.path.isfile(path):
+        return {}
+    with open(path, encoding='utf-8') as f:
+        return module_meta(json.load(f), module_id)
+
+
+def git_stamp(boost_root, today=None):
+    cmd = ['git', '-C', boost_root, 'log', '-1', '--format=%h %cs']
+    try:
+        out = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise GeneratorError(f'cannot read the Boost commit with "{" ".join(cmd)}": {e}')
+    commit, _, commit_date = out.stdout.decode('utf-8').strip().partition(' ')
+    return {'boostCommit': commit, 'boostDate': commit_date,
+            'generated': (today or date.today()).isoformat()}
+
+
+def scan_examples(boost_root, module_ids):
+    """Direct dependencies found in each module's example dirs by depinst.py.
+
+    Returns ``(result, dropped)``: ``result`` maps module id to the set of
+    module ids it depends on (``~`` id form); ``dropped`` counts the targets
+    that are not known modules and were left out.
+    """
+    depinst_dir = os.path.join(boost_root, 'tools', 'boostdep', 'depinst')
+    depinst_path = os.path.join(depinst_dir, 'depinst.py')
+    if not os.path.isfile(depinst_path):
+        raise GeneratorError(f'depinst.py not found: {depinst_path}')
+    spec = importlib.util.spec_from_file_location('boostdep_depinst', depinst_path)
+    depinst = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(depinst)
+    depinst.verbose = -1
+
+    known = set(module_ids)
+    result = {}
+    dropped = 0
+    old_cwd = os.getcwd()
+    old_argv0 = sys.argv[0]
+    try:
+        os.chdir(boost_root)
+        sys.argv[0] = depinst_path
+        x = depinst.read_exceptions()
+        gm = depinst.read_gitmodules()
+        listed = set(gm)
+        gm.extend(p for p in ('libs/' + m.replace('~', '/') for m in module_ids)
+                  if p not in listed)
+        for m in module_ids:
+            deps = {}
+            depinst.scan_module_dependencies(m.replace('~', '/'), x, gm, deps, EXAMPLE_DIRS, [])
+            found = {d.replace('/', '~') for d in deps}
+            result[m] = found & known
+            dropped += len(found - known)
+    except Exception as e:
+        raise GeneratorError(f'depinst.py scan failed: {type(e).__name__}: {e}')
+    finally:
+        sys.argv[0] = old_argv0
+        os.chdir(old_cwd)
+    return result, dropped
+
+
+# ---------------------------------------------------------------------------
+# Data assembly
+# ---------------------------------------------------------------------------
+
+def check_known(edges, known, what):
+    for src, targets in edges.items():
+        if src not in known:
+            raise GeneratorError(f'{what}: unknown module "{src}"')
+        for t in targets:
+            if t not in known:
+                raise GeneratorError(f'{what}: "{src}" depends on unknown module "{t}"')
+
+
+def build_data(*, boost_root, levels, lib_deps, test_deps, example_deps, buildable,
+               module_ids, gitmodules_paths, stamp):
+    """Assemble the data.js payload from already-parsed inputs."""
+    known = set(module_ids)
+    check_known(lib_deps, known, 'module levels')
+    missing = sorted(known - set(levels))
+    if missing:
+        raise GeneratorError(f'modules without a level: {", ".join(missing)}')
+    check_known(test_deps, known, 'test dependencies')
+    check_known(example_deps, known, 'example dependencies')
+
+    submodule_ids = {p[len('libs/'):].replace('/', '~')
+                     for p in gitmodules_paths if p.startswith('libs/')}
+
+    order = sorted(known, key=lambda m: (levels[m], m))
+    metas = {m: read_meta(boost_root, m) for m in order}
+    cxxstd = {}
+    inferred = {}
+    for m in order:
+        own = metas[m].get('cxxstd')
+        if own:
+            cxxstd[m], inferred[m] = own, False
+        else:
+            cxxstd[m] = max_cxxstd(cxxstd.get(d) for d in lib_deps.get(m, [])) or '98'
+            inferred[m] = True
+
+    modules = []
+    for m in sorted(known):
+        meta = metas[m]
+        is_tool = os.path.isdir(os.path.join(boost_root, 'tools', m))
+        modules.append({
+            'id': m,
+            'name': meta.get('name') or m,
+            'level': levels[m],
+            'cxxstd': cxxstd[m],
+            'cxxstdInferred': inferred[m],
+            'authors': meta.get('authors', []),
+            'description': meta.get('description', ''),
+            'categories': meta.get('categories', []),
+            'buildable': m in buildable,
+            'tool': is_tool,
+            'proposed': m not in submodule_ids and not is_tool,
+            'deprecated': meta.get('deprecated', False),
+            'stdAlternatives': list(CXXSTD_ALTERNATIVES.get(m, [])),
+        })
+
+    seen = set()
+    for kind, source in (('lib', lib_deps), ('test', test_deps), ('example', example_deps)):
+        for m, targets in source.items():
+            for t in targets:
+                if t == m:
+                    continue
+                if kind != 'lib' and t in lib_deps.get(m, []):
+                    continue
+                seen.add((m, kind, t))
+    edges = [{'from': m, 'to': t, 'kind': k} for m, k, t in sorted(seen)]
+    return {'stamp': stamp, 'modules': modules, 'edges': edges}
+
+
+def collect_data(boost_root, boostdep, today=None):
+    """Run everything against a real Boost checkout."""
+    module_ids = [l.strip() for l in
+                  run_boostdep(boostdep, boost_root, '--list-modules').splitlines() if l.strip()]
+    levels, lib_deps = parse_module_levels(run_boostdep(boostdep, boost_root, '--module-levels'))
+    all_tests = parse_list_dependencies(
+        run_boostdep(boostdep, boost_root, '--track-tests', '--list-dependencies'))
+    buildable = parse_list_buildable(run_boostdep(boostdep, boost_root, '--list-buildable'))
+    known = set(module_ids)
+
+    dropped_tests = 0
+    test_deps = {}
+    for m, targets in all_tests.items():
+        if m not in known:
+            raise GeneratorError(f'test dependencies: unknown module "{m}"')
+        kept = [t for t in targets if t in known]
+        dropped_tests += len(targets) - len(kept)
+        test_deps[m] = kept
+    example_deps, dropped_examples = scan_examples(boost_root, module_ids)
+
+    data = build_data(
+        boost_root=boost_root, levels=levels, lib_deps=lib_deps, test_deps=test_deps,
+        example_deps=example_deps, buildable=buildable, module_ids=module_ids,
+        gitmodules_paths=read_gitmodules_paths(boost_root),
+        stamp=git_stamp(boost_root, today))
+    vprint(f'dropped targets that are not modules: {dropped_tests} test, {dropped_examples} example')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
+def _dumps(value):
+    s = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    return s.replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
+
+
+def render_data_js(data):
+    """Deterministic data.js text: one module and one edge per line."""
+    lines = ['window.BOOSTDEP_DATA = {',
+             f'"stamp":{_dumps(data["stamp"])},',
+             '"modules":[']
+    lines += [_dumps(m) + (',' if i < len(data['modules']) - 1 else '')
+              for i, m in enumerate(data['modules'])]
+    lines += ['],', '"edges":[']
+    lines += [_dumps(e) + (',' if i < len(data['edges']) - 1 else '')
+              for i, e in enumerate(data['edges'])]
+    lines += [']', '};', '']
+    return '\n'.join(lines)
+
+
+def parse_data_js(text):
+    """Inverse of render_data_js; returns None when text is not our format."""
+    start = text.find('{')
+    end = text.rfind('};')
+    if start == -1 or end == -1:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except ValueError:
+        return None
+
+
+def payload(data):
+    return {'modules': data['modules'], 'edges': data['edges']}
+
+
+def write_data_js(path, data):
+    """Write data.js unless the payload (modules + edges) is unchanged.
+
+    Returns True when the file was written.
+    """
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as f:
+            old = parse_data_js(f.read())
+        if old is not None and payload(old) == json.loads(_dumps(payload(data))):
+            return False
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(render_data_js(data))
+    return True
+
+
+def main(argv=None):
+    global verbose
+    parser = argparse.ArgumentParser(
+        description='Generate data.js for the Boost dependency explorer.')
+    parser.add_argument('--boost-root', default='.', help='the Boost checkout directory')
+    parser.add_argument('--boostdep', default='boostdep', help='path to the boostdep executable')
+    parser.add_argument('--output-dir', default='.', help='directory that receives data.js')
+    parser.add_argument('-v', '--verbose', action='count', default=0, help='more output')
+    parser.add_argument('-q', '--quiet', action='count', default=0, help='less output (opposite of -v)')
+    args = parser.parse_args(argv)
     verbose = args.verbose - args.quiet
-    vprint(args)
 
-    # Validate
-    if args.output == 'report' and args.libs:
-        print(f'"--libs {" ".join(args.libs)}" and "--output report" are invalid')
-        exit()
+    try:
+        data = collect_data(os.path.abspath(args.boost_root), args.boostdep)
+        written = write_data_js(os.path.join(args.output_dir, 'data.js'), data)
+    except GeneratorError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
 
-    if not args.output == 'report':
-        generate_depgraph(args.boostdep, args.boost_root, args.libs, args.output, output_path=args.output_path)
-    else:
-        p = os.path.join(os.path.dirname(args.output_path), 'index.html')
-        vprint(f'Generate overview: {p}')
-        ms = generate_depgraph(args.boostdep, args.boost_root, [], 'report', output_path=p)
-        vprint(ms)
-        for m in ms:
-            p = os.path.join(args.output_path, 'libs', f'{m}.html')
-            vprint(f'Generate {m} report: {p}')
-            generate_depgraph(args.boostdep, args.boost_root, [m], 'report', output_path=p)
+    kinds = {k: sum(1 for e in data['edges'] if e['kind'] == k) for k in ('lib', 'test', 'example')}
+    if verbose >= 0:
+        print(f'{len(data["modules"])} modules, edges: lib {kinds["lib"]}, test {kinds["test"]}, '
+              f'example {kinds["example"]}; data.js {"written" if written else "unchanged"}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
