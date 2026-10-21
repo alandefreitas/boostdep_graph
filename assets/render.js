@@ -1,25 +1,12 @@
 // Hand-written SVG renderer: builds the DOM once, then only toggles classes and attributes.
-import { relations, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
-import { stdClass, stdLabel } from './dom.js';
+import { relationMap, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
+import { h, stdClass, stdLabel, REL_OPTION, BADGES, enabledKinds } from './dom.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_R = 4.5;
 const LABEL_PX = 10.5;
 const MAX_K = 6;
 const CLICK_SLOP = 4;
-
-const REL_OPTION = {
-  dep: 'deps', tdep: 'tdeps', rdep: 'rdeps', trdep: 'trdeps', category: 'category',
-  testdep: 'tests', testrdep: 'tests', exampledep: 'examples', examplerdep: 'examples',
-};
-
-// Badge slots: option key, symbol id, module flag, angle in degrees (0 = right, clockwise).
-const BADGES = [
-  ['buildableMarker', 'sym-buildable', 'buildable', -45],
-  ['toolMarker', 'sym-tool', 'tool', 45],
-  ['deprecatedMarker', 'sym-deprecated', 'deprecated', -135],
-  ['proposedMarker', 'sym-proposed', 'proposed', 135],
-];
 
 export function el(tag, attrs = {}, parent = null) {
   const e = document.createElementNS(NS, tag);
@@ -119,10 +106,7 @@ export function createGraphView(svg, graph, layout, importance) {
     const halo = el('circle', { class: 'halo' }, body);
     const circle = el('circle', { class: 'shape', r: 9 }, body);
     const diamond = el('rect', { class: 'shape diamond', rx: 2 }, body);
-    const badges = BADGES.map(([opt, sym, flag, angle]) => {
-      const u = el('use', { href: `#${sym}`, class: 'badge' }, body);
-      return { u, opt, flag, angle };
-    });
+    const badges = BADGES.map(b => ({ ...b, u: el('use', { href: `#${b.sym}`, class: 'badge' }, body) }));
     const label = el('text', { class: 'label' }, g);
     label.textContent = m.name || id;
     nodes.set(id, { id, m, g, body, halo, circle, diamond, badges, label, cls: '', r: 0, s: 1, alt: Boolean(m.stdAlternatives?.length), off: false });
@@ -434,20 +418,10 @@ export function createGraphView(svg, graph, layout, importance) {
     const m = nd.m;
     tooltip.dataset.id = nd.id;
     tooltip.replaceChildren();
-    const title = document.createElement('div');
-    title.className = 'tt-title';
-    title.textContent = m.name || nd.id;
-    const std = document.createElement('span');
-    std.className = 'tt-std';
-    std.textContent = stdLabel(m);
-    title.append(' ', std);
+    const title = h('div', 'tt-title', m.name || nd.id);
+    title.append(' ', h('span', 'tt-std', stdLabel(m)));
     tooltip.appendChild(title);
-    if (m.description) {
-      const d = document.createElement('div');
-      d.className = 'tt-desc';
-      d.textContent = m.description;
-      tooltip.appendChild(d);
-    }
+    if (m.description) tooltip.appendChild(h('div', 'tt-desc', m.description));
   }
 
   function hideTooltip() {
@@ -460,8 +434,8 @@ export function createGraphView(svg, graph, layout, importance) {
   function update(state) {
     lastState = state;
     const o = state.options;
-    const sel = state.selected && graph.modules.has(state.selected) ? state.selected : null;
-    const relMap = sel ? relations(graph, sel, { tests: o.tests, examples: o.examples }) : null;
+    const sel = state.selected;
+    const relMap = sel ? relationMap(graph, sel, { tests: o.tests, examples: o.examples }) : null;
     const visible = visibleModules(graph, {
       categories: state.filters.categories,
       cxxstd: state.filters.cxxstd,
@@ -510,7 +484,7 @@ export function createGraphView(svg, graph, layout, importance) {
         }
       }
       for (const b of nd.badges) {
-        const on = o[b.opt] && nd.m[b.flag];
+        const on = o[b.option] && nd.m[b.flag];
         if (b.on !== on) { b.u.style.display = on ? '' : 'none'; b.on = on; }
       }
     }
@@ -527,8 +501,7 @@ export function createGraphView(svg, graph, layout, importance) {
     if (sel) {
       // Edges follow the raw needs (colour = the edge's role: orange for needs, blue for dependants),
       // independent of the ranked ring on the target; rings and counts use relationGroups().
-      for (const kind of ['test', 'example']) {
-        if (!o[`${kind}s`]) continue;
+      for (const kind of enabledKinds(o)) {
         const n = extraNeeds(graph, sel, kind);
         needs[kind] = { direct: n.direct, all: new Set([...n.direct, ...n.transitive]), rdeps: extraDependants(graph, sel, kind) };
       }
@@ -551,8 +524,7 @@ export function createGraphView(svg, graph, layout, importance) {
       }
       if (cls !== e.cls) { e.path.setAttribute('class', cls); e.cls = cls; }
     }
-    for (const kind of ['test', 'example']) {
-      if (!o[`${kind}s`]) continue;
+    for (const kind of enabledKinds(o)) {
       for (const id of graph.order) {
         if (!visible.has(id)) continue;
         for (const to of graph.out.get(id)[kind]) {
@@ -629,6 +601,7 @@ export function createGraphView(svg, graph, layout, importance) {
   fit();
   api.relayout = relayout;
   api.setInset = setInset;
+  // Debug/test hooks (not used by the app): label-placement stats and a synchronous settle().
   api.stats = stats;
   api.settle = settle;
   api.update = update;

@@ -1,6 +1,6 @@
 // Details panel for the selected module.
-import { relationGroups, visibleModules, dependencyPath, extraNeeds } from './graph.js';
-import { h, moduleName, stdClass, stdLabel } from './dom.js';
+import { relationGroups, visibleModules, dependencyPath, needGroups } from './graph.js';
+import { h, moduleName, stdClass, stdLabel, BADGES, KIND_OPTION, enabledKinds } from './dom.js';
 
 /**
  * @param {HTMLElement} root the <aside>
@@ -12,7 +12,8 @@ export function createDetails(root, graph, { onSelect, onClose }) {
   const level = id => graph.modules.get(id).level;
   const name = id => moduleName(graph, id);
 
-  function chipList(ids, sel, hint, withPath) {
+  /** Chips for `ids`; with `from` set, hovering one shows the shortest dependency path from `from` to it. */
+  function chipList(ids, from) {
     const wrap = h('div', 'chips');
     for (const id of ids) {
       const b = h('button', 'chip', name(id));
@@ -20,9 +21,9 @@ export function createDetails(root, graph, { onSelect, onClose }) {
       b.dataset.id = id;
       b.style.setProperty('--chip-std', `var(--${stdClass(graph.modules.get(id).cxxstd)})`);
       b.addEventListener('click', () => onSelect(id));
-      if (withPath) {
+      if (from !== undefined) {
         const show = () => {
-          const p = dependencyPath(graph, sel, id);
+          const p = dependencyPath(graph, from, id);
           setHint(p ? p.map(name).join(' → ') : '');
         };
         b.addEventListener('mouseenter', show);
@@ -39,13 +40,13 @@ export function createDetails(root, graph, { onSelect, onClose }) {
   const IDLE = "Hover an indirect dependency to see how it's reached";
   const setHint = text => { hint.textContent = text || IDLE; hint.classList.toggle('idle', !text); };
   let vis = null;
-  function section(title, all, sel, { pathsOn, from }) {
+  function section(title, all, from) {
     const ids = all.filter(id => vis.has(id));
     const hidden = all.length - ids.length;
     if (!all.length) return null;
     const s = h('section', 'sec');
     s.appendChild(h('h3', '', `${title} (${ids.length})`));
-    if (ids.length) s.appendChild(chipList(ids, from ?? sel, hint, pathsOn && from !== undefined));
+    if (ids.length) s.appendChild(chipList(ids, from));
     if (hidden) s.appendChild(h('p', 'muted det-hidden', `+${hidden} hidden by filters`));
     return s;
   }
@@ -76,7 +77,7 @@ export function createDetails(root, graph, { onSelect, onClose }) {
     const facts = h('div', 'facts');
     const std = h('span', `pill std ${stdClass(m.cxxstd)}`, stdLabel(m));
     facts.appendChild(std);
-    for (const [flag, label] of [['buildable', 'Buildable'], ['tool', 'Tool'], ['proposed', 'Proposed'], ['deprecated', 'Deprecated']]) {
+    for (const { flag, label } of BADGES) {
       if (m[flag]) facts.appendChild(h('span', `pill flag-${flag}`, label));
     }
     body.appendChild(facts);
@@ -101,26 +102,26 @@ export function createDetails(root, graph, { onSelect, onClose }) {
       body.appendChild(s);
     }
 
-    const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
+    const opts = { tests: o.tests, examples: o.examples };
+    const groups = relationGroups(graph, sel, opts);
     const byLevelDesc = (a, b) => level(b) - level(a) || (a < b ? -1 : 1);
     const byLevelAsc = (a, b) => level(a) - level(b) || (a < b ? -1 : 1);
-    const pathsOn = o.paths;
+    const asc = ids => [...ids].sort(byLevelAsc);
+    const desc = ids => [...ids].sort(byLevelDesc);
 
     const secs = [
-      section('Direct dependencies', [...groups.dep].sort(byLevelDesc), sel, { pathsOn }),
-      section('Indirect dependencies', [...groups.tdep].sort(byLevelDesc), sel, { pathsOn, from: sel }),
-      section('Direct dependants', [...groups.rdep].sort(byLevelAsc), sel, { pathsOn }),
-      section('Indirect dependants', [...groups.trdep].sort(byLevelAsc), sel, { pathsOn: false }),
+      section('Direct dependencies', desc(groups.dep)),
+      section('Indirect dependencies', desc(groups.tdep), o.paths ? sel : undefined),
+      section('Direct dependants', asc(groups.rdep)),
+      section('Indirect dependants', asc(groups.trdep)),
     ];
-    for (const [kind, on, label] of [['test', o.tests, 'tests'], ['example', o.examples, 'examples']]) {
-      if (!on) continue;
-      const direct = extraNeeds(graph, sel, kind).direct;
-      const needs = groups[`${kind}dep`];
-      const indirect = needs.filter(id => !direct.has(id));
+    for (const kind of enabledKinds(o)) {
+      const label = KIND_OPTION[kind];
+      const need = needGroups(graph, sel, kind, opts);
       secs.push(
-        section(`Also needed by its ${label}`, needs.filter(id => direct.has(id)).sort(byLevelDesc), sel, { pathsOn }),
-        section(`Needed indirectly by its ${label}`, indirect.sort(byLevelDesc), sel, { pathsOn }),
-        section(`Libraries whose ${label} need it`, [...groups[`${kind}rdep`]].sort(byLevelAsc), sel, { pathsOn: false }),
+        section(`Also needed by its ${label}`, desc(need.direct)),
+        section(`Needed indirectly by its ${label}`, desc(need.indirect)),
+        section(`Libraries whose ${label} need it`, asc(groups[`${kind}rdep`])),
       );
     }
     for (const s of secs) if (s) body.appendChild(s);
@@ -132,7 +133,7 @@ export function createDetails(root, graph, { onSelect, onClose }) {
 
   return {
     update(state) {
-      const sel = state.selected && graph.modules.has(state.selected) ? state.selected : null;
+      const sel = state.selected;
       root.hidden = !sel;
       if (!sel) { shownKey = ''; return; }
       const o = state.options;

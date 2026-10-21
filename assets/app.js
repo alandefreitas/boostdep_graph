@@ -5,6 +5,7 @@ import { createGraphView } from './render.js';
 import { createDetails } from './details.js';
 import { createLegend } from './ui.js';
 import { createFocus } from './focus.js';
+import { h } from './dom.js';
 
 const data = window.BOOSTDEP_DATA;
 const $ = id => document.getElementById(id);
@@ -71,23 +72,12 @@ function setupSearch(graph, store, select) {
     };
     items = graph.order.filter(id => score(id) < 3).sort((a, b) => score(a) - score(b) || (a < b ? -1 : 1)).slice(0, 12);
     list.replaceChildren();
-    if (!items.length) {
-      const li = document.createElement('li');
-      li.className = 'empty';
-      li.textContent = 'No library matches';
-      list.appendChild(li);
-    }
+    if (!items.length) list.appendChild(h('li', 'empty', 'No library matches'));
     for (const id of items) {
       const m = graph.modules.get(id);
-      const li = document.createElement('li');
+      const li = h('li');
       li.setAttribute('role', 'option');
-      const n = document.createElement('span');
-      n.className = 'r-name';
-      n.textContent = m.name || id;
-      const d = document.createElement('span');
-      d.className = 'r-desc';
-      d.textContent = m.description || id;
-      li.append(n, d);
+      li.append(h('span', 'r-name', m.name || id), h('span', 'r-desc', m.description || id));
       li.addEventListener('pointerdown', e => { e.preventDefault(); choose(id); });
       list.appendChild(li);
     }
@@ -214,8 +204,7 @@ function main() {
     document.body.classList.toggle('drawer-open', open);
     $('m-legend').setAttribute('aria-expanded', String(open));
     for (const id of BEHIND_DRAWER) {
-      const e = document.getElementById(id) ?? document.querySelector(`.${id}`);
-      if (e) e.inert = open;
+      $(id).inert = open;
     }
     if (open) $('legend').querySelector('.lg-close')?.focus({ preventScroll: true });
     else if (was) $('m-legend').focus({ preventScroll: true });
@@ -283,6 +272,7 @@ function main() {
     }
   });
 
+  // Debug hook for the browser console and manual checks; the app itself never reads it.
   window.bdg = { graph, store, view };
 }
 

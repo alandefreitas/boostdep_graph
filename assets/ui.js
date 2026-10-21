@@ -3,19 +3,12 @@
 import { DEFAULT_OPTIONS } from './state.js';
 import { relationGroups, visibleModules, expandStd, cxxstdOrder } from './graph.js';
 import { el as s, diamondGeom, badgeGeom } from './render.js';
-import { stdClass } from './dom.js';
+import { h, stdClass, REL_OPTION, KIND_OPTION, BADGES, badgeOf } from './dom.js';
 
 // One chip per standard; 98 and 03 share the '03' chip.
 const STDS = cxxstdOrder.filter(k => k !== '98').map(k => [k, k === '03' ? 'C++98/03' : `C++${k}`]);
 const SAMPLE_W = 46;
 const NODE_X = 34;
-
-function h(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
 
 /**
  * A small SVG that reuses the graph's classes. `edge` is an edge class string drawn into the node.
@@ -57,7 +50,6 @@ function customSample(draw) {
  */
 export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null } = {}) {
   const switches = new Map();
-  let modified = false;
   const counts = new Map();
 
   // ---- generic pieces ----
@@ -153,15 +145,15 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   const selRow = row({ sampleEl: sample({ cls: 'rel-self rel', halo: true, cx: NODE_X, edge: null, r: 6 }), label: 'Selected library', help: 'Glowing orange ring.' });
   g1.body.appendChild(selRow);
   const RELS = [
-    ['dep', 'deps', 'Direct dependencies', 'What it includes directly. Orange.', 'hi-dep'],
-    ['tdep', 'tdeps', 'Indirect dependencies', 'Needed through its dependencies. Light orange.', 'hi-tdep'],
-    ['rdep', 'rdeps', 'Direct dependants', 'Libraries that use it directly. Blue.', 'hi-rdep'],
-    ['trdep', 'trdeps', 'Indirect dependants', 'Use it through other libraries. Light blue.', 'hi-trdep'],
+    ['dep', 'Direct dependencies', 'What it includes directly. Orange.'],
+    ['tdep', 'Indirect dependencies', 'Needed through its dependencies. Light orange.'],
+    ['rdep', 'Direct dependants', 'Libraries that use it directly. Blue.'],
+    ['trdep', 'Indirect dependants', 'Use it through other libraries. Light blue.'],
   ];
-  for (const [rel, opt, label, help, edge] of RELS) {
-    g1.body.appendChild(row({ sampleEl: sample({ cls: `rel-${rel} rel`, edge }), label, help, option: opt, countKey: rel }));
+  for (const [rel, label, help] of RELS) {
+    g1.body.appendChild(row({ sampleEl: sample({ cls: `rel-${rel} rel`, edge: `hi-${rel}` }), label, help, option: REL_OPTION[rel], countKey: rel }));
   }
-  g1.body.appendChild(row({ sampleEl: sample({ cls: 'rel-category rel' }), label: 'Same category', help: 'Shares a category with it. Green ring.', option: 'category', countKey: 'category', graphOnly: true }));
+  g1.body.appendChild(row({ sampleEl: sample({ cls: 'rel-category rel' }), label: 'Same category', help: 'Shares a category with it. Green ring.', option: REL_OPTION.category, countKey: 'category', graphOnly: true }));
   const pathSample = customSample(svg => {
     const t = s('text', { x: 2, y: 18, class: 'lg-path' }, svg);
     t.textContent = 'a → b → c';
@@ -170,14 +162,15 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
 
   // ---- group: include ----
   const g2 = group('Include (off by default)', 'By default only what users actually pull in is shown.');
+  const COUNT_NOTE = 'The count leaves out libraries already shown in another role, so edges can come from more libraries.';
   const INCL = [
-    ['test', 'tests', 'rel-testdep', 'rel-testrdep', 'x-test', 'Test dependencies', 'Also count what the library\u2019s tests pull in. Dashed orange.', 'Blue dashed: libraries whose tests need it.'],
-    ['example', 'examples', 'rel-exampledep', 'rel-examplerdep', 'x-example', 'Example dependencies', 'Also count what the library\u2019s examples pull in. Dotted orange.', 'Blue dotted: libraries whose examples need it.'],
+    ['test', 'Test dependencies', 'Also count what the library\u2019s tests pull in. Dashed orange.', `Blue dashed: libraries whose tests need it. ${COUNT_NOTE}`],
+    ['example', 'Example dependencies', 'Also count what the library\u2019s examples pull in. Dotted orange.', `Blue dotted: libraries whose examples need it. ${COUNT_NOTE}`],
   ];
-  for (const [kind, opt, depCls, rdepCls, edgeCls, label, help, rhelp] of INCL) {
-    const sub = row({ sampleEl: sample({ cls: `${rdepCls} rel`, edge: `${edgeCls} hi-xr` }), label: 'Dependants', help: rhelp, countKey: `${kind}r` });
+  for (const [kind, label, help, rhelp] of INCL) {
+    const sub = row({ sampleEl: sample({ cls: `rel-${kind}rdep rel`, edge: `x-${kind} hi-xr` }), label: 'Dependants', help: rhelp, countKey: `${kind}r` });
     sub.classList.add('lg-sub');
-    g2.body.appendChild(row({ sampleEl: sample({ cls: `${depCls} rel`, edge: `${edgeCls} hi-x` }), label, help, option: opt, countKey: kind, extra: sub }));
+    g2.body.appendChild(row({ sampleEl: sample({ cls: `rel-${kind}dep rel`, edge: `x-${kind} hi-x` }), label, help, option: KIND_OPTION[kind], countKey: kind, extra: sub }));
   }
 
   // ---- group: libraries ----
@@ -217,10 +210,12 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   const hiddenOptions = new Set();
   const markerRows = [
     [m => m.stdAlternatives?.length, { sampleEl: sample({ alt: true, std: 'std-14' }), label: 'Diamond = has a standard alternative', help: 'Part of it now exists in the C++ standard library.', option: 'stdAltMarker' }],
-    [m => m.buildable, { sampleEl: sample({ badge: { sym: 'sym-buildable', angle: -45 }, std: 'std-14' }), label: 'Can be built separately', help: 'Has a compiled part (a library to link).', option: 'buildableMarker' }],
-    [m => m.tool, { sampleEl: sample({ badge: { sym: 'sym-tool', angle: 45 }, std: 'std-14' }), label: 'Boost tool', help: 'A program for developers, not a library.', option: 'toolMarker' }],
-    [m => m.deprecated, { sampleEl: sample({ badge: { sym: 'sym-deprecated', angle: -135 }, std: 'std-14' }), label: 'Deprecated', help: 'Kept for compatibility, scheduled for removal.', option: 'deprecatedMarker' }],
-    [m => m.proposed, { sampleEl: sample({ badge: { sym: 'sym-proposed', angle: 135 }, std: 'std-14' }), label: 'Proposed for Boost', help: 'Under review, not part of a release yet.', option: 'proposedMarker' }],
+    ...[
+      ['buildable', 'Can be built separately', 'Has a compiled part (a library to link).'],
+      ['tool', 'Boost tool', 'A program for developers, not a library.'],
+      ['deprecated', 'Deprecated', 'Kept for compatibility, scheduled for removal.'],
+      ['proposed', 'Proposed for Boost', 'Under review, not part of a release yet.'],
+    ].map(([flag, label, help]) => [m => m[flag], { sampleEl: sample({ badge: badgeOf(flag), std: 'std-14' }), label, help, option: badgeOf(flag).option }]),
   ];
   for (const [pred, spec] of markerRows) {
     if (anyModule(pred)) g3.body.appendChild(row({ ...spec, graphOnly: true }));
@@ -240,18 +235,13 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
 
   // ---- group: categories ----
   const g4 = group('Categories', 'Untick a category to dim its libraries. Dimmed libraries keep their place.');
-  const catNames = new Map();
   const catCount = new Map();
   let uncategorized = 0;
   for (const m of graph.modules.values()) {
     if (!m.categories?.length) uncategorized++;
-    for (const c of m.categories || []) {
-      const k = c.toLowerCase();
-      if (!catNames.has(k)) catNames.set(k, c);
-      catCount.set(k, (catCount.get(k) || 0) + 1);
-    }
+    for (const c of m.categories || []) catCount.set(c, (catCount.get(c) || 0) + 1);
   }
-  const catList = [...catNames.entries()].sort((a, b) => (a[1] < b[1] ? -1 : 1));
+  const catList = [...catCount.keys()].sort((a, b) => (a < b ? -1 : 1));
   const bar = h('div', 'lg-bar');
   const allBtn = h('button', 'lg-mini', 'All');
   const noneBtn = h('button', 'lg-mini', 'None');
@@ -262,7 +252,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   g4.body.appendChild(bar);
   const catWrap = h('div', 'lg-chips lg-catchips');
   const catChips = new Map();
-  const allCatKeys = catList.map(([, name]) => name);
+  const allCatKeys = [...catList];
   const addCat = (key, label, n) => {
     const c = h('label', 'lg-chip');
     const input = h('input');
@@ -273,7 +263,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
     catChips.set(key, input);
     catWrap.appendChild(c);
   };
-  for (const [k, name] of catList) addCat(name, name, catCount.get(k));
+  for (const name of catList) addCat(name, name, catCount.get(name));
   if (uncategorized) {
     addCat('', 'Uncategorized', uncategorized);
     allCatKeys.push('');
@@ -305,7 +295,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   function update(state) {
     const o = state.options;
     for (const [opt, input] of switches) input.checked = o[opt];
-    const sel = state.selected && graph.modules.has(state.selected) ? state.selected : null;
+    const sel = state.selected;
     hint.hidden = Boolean(sel);
     const selLabel = selRow.querySelector('.lg-label');
     selLabel.textContent = sel ? `Selected: ${graph.modules.get(sel).name || sel}` : 'Selected library';
@@ -315,7 +305,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
     const cats = state.filters.categories;
     const tally = { dep: 0, tdep: 0, rdep: 0, trdep: 0, category: 0, test: 0, example: 0, testr: 0, exampler: 0 };
     if (sel) {
-      const vis = visibleModules(graph, { categories: cats, cxxstd: expStds });
+      const vis = visibleModules(graph, { categories: cats, cxxstd: stds });
       vis.add(sel);
       const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
       const count = ids => ids.filter(id => vis.has(id)).length;
@@ -337,8 +327,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
     const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds;
     reset.disabled = isDefault;
     root.classList.toggle('modified', !isDefault);
-    modified = !isDefault;
   }
 
-  return { update, isModified: () => modified };
+  return { update, isModified: () => root.classList.contains('modified') };
 }

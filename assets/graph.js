@@ -8,7 +8,7 @@ const KINDS = ['lib', 'test', 'example'];
 export const cxxstdOrder = ['98', '03', '11', '14', '17', '20', '23'];
 
 /**
- * Compare two C++ standard strings by age. Unknown values sort last.
+ * Compare two C++ standard strings by age. Unknown values sort last. (Used by tests only.)
  * @param {string} a
  * @param {string} b
  * @returns {number}
@@ -222,19 +222,50 @@ function ranked(g, selected, opts) {
       if (r && r in groups) groups[r].push(id);
     }
     for (const k of RELATION_KEYS) Object.freeze(groups[k]);
-    c.rank = { key, map, groups: Object.freeze(groups) };
+    c.rank = { key, map, groups: Object.freeze(groups), needs: {} };
   }
   return c.rank;
 }
 
 /**
- * Relation of `id` to `selected` (see relations()). Uses a one-entry cache so
- * repeated calls for the same selection and options are cheap.
+ * relations() through the one-entry cache shared by relation(), relationMap()
+ * and relationGroups(): repeated calls for the same selection and options are
+ * cheap. Treat the map as read-only.
+ * @returns {Map<string, string|null>}
+ */
+export function relationMap(g, selected, opts) {
+  return ranked(g, selected, opts).map;
+}
+
+/**
+ * Relation of `id` to `selected` (see relations()). Single lookup, used by tests only.
  * @returns {string|null}
  */
 export function relation(g, selected, id, opts) {
-  const map = ranked(g, selected, opts).map;
+  const map = relationMap(g, selected, opts);
   return map.has(id) ? map.get(id) : null;
+}
+
+/**
+ * The needs of the `kind` ('test' | 'example') edges of `selected`, as ranked by
+ * relationGroups(): `direct` = targets of its own `kind` edges, `indirect` = the
+ * rest of its testdep/exampledep group. Arrays are in id order, frozen and cached.
+ * Empty unless the matching option is on in `opts`.
+ * @returns {{direct: readonly string[], indirect: readonly string[]}}
+ */
+export function needGroups(g, selected, kind, opts) {
+  const rank = ranked(g, selected, opts);
+  let res = rank.needs[kind];
+  if (!res) {
+    const direct = extraNeeds(g, selected, kind).direct;
+    const all = rank.groups[`${kind}dep`];
+    res = Object.freeze({
+      direct: Object.freeze(all.filter(id => direct.has(id))),
+      indirect: Object.freeze(all.filter(id => !direct.has(id))),
+    });
+    rank.needs[kind] = res;
+  }
+  return res;
 }
 
 /**
@@ -291,6 +322,7 @@ export function dependencyPath(g, from, to) {
  * Shortest lib path following dependants: result[0] = from, last = to, and each
  * element is depended on by the next. Equals dependencyPath(g, to, from) reversed
  * in meaning, but with its own deterministic tie-break.
+ * Used by tests only.
  * @returns {string[]|null}
  */
 export function dependantPath(g, from, to) {

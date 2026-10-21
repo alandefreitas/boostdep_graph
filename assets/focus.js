@@ -1,7 +1,7 @@
 // Phone focus view: the selected library in the middle, what it needs on the left, what needs it on the right.
 // With nothing selected it shows a short intro and the most depended-upon libraries as tappable chips.
-import { relationGroups, extraNeeds, visibleModules } from './graph.js';
-import { h, moduleName, stdClass, stdLabel } from './dom.js';
+import { relationGroups, needGroups, visibleModules } from './graph.js';
+import { h, moduleName, stdClass, stdLabel, KIND_OPTION, enabledKinds } from './dom.js';
 
 const POPULAR = 10;
 const HIDDEN = 'Hidden by your filters or options.';
@@ -92,7 +92,8 @@ export function createFocus(root, graph, importance, { onSelect, onOpenDetails }
     vis.add(sel);
     const keep = ids => [...ids].filter(id => vis.has(id)).sort(byName);
 
-    const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
+    const opts = { tests: o.tests, examples: o.examples };
+    const groups = relationGroups(graph, sel, opts);
     const ofRel = (r, allowed = true) => (allowed ? keep(groups[r]) : []);
     const depsDirect = ofRel('dep', o.deps).map(id => [id, 'f-dep']);
     const depsInd = ofRel('tdep', o.tdeps).map(id => [id, 'f-tdep']);
@@ -101,13 +102,12 @@ export function createFocus(root, graph, importance, { onSelect, onOpenDetails }
     const depExtras = [];
     const rdExtras = [];
     const indirectExtras = [];
-    for (const [kind, on, label] of [['test', o.tests, 'tests'], ['example', o.examples, 'examples']]) {
-      if (!on) continue;
-      const direct = extraNeeds(graph, sel, kind).direct;
-      const needs = ofRel(`${kind}dep`);
-      depExtras.push({ label: `Its ${label} also need`, items: needs.filter(id => direct.has(id)).map(id => [id, `f-${kind}dep`]) });
-      if (o.tdeps) indirectExtras.push(...needs.filter(id => !direct.has(id)).map(id => [id, `f-${kind}dep`]));
-      rdExtras.push({ label: `Libraries whose ${label} need it`, items: ofRel(`${kind}rdep`).map(id => [id, `f-${kind}rdep`]) });
+    for (const kind of enabledKinds(o)) {
+      const label = KIND_OPTION[kind];
+      const need = needGroups(graph, sel, kind, opts);
+      depExtras.push({ label: `Its ${label} also need`, items: keep(need.direct).map(id => [id, `f-${kind}dep`]) });
+      if (o.tdeps) indirectExtras.push(...keep(need.indirect).map(id => [id, `f-${kind}dep`]));
+      rdExtras.push({ label: `Libraries whose ${label} need it`, items: keep(groups[`${kind}rdep`]).map(id => [id, `f-${kind}rdep`]) });
     }
     depsInd.push(...indirectExtras);
     depsInd.sort((a, b) => byName(a[0], b[0]));
@@ -154,7 +154,7 @@ export function createFocus(root, graph, importance, { onSelect, onOpenDetails }
 
   function update(state) {
     current = state;
-    const sel = state.selected && graph.modules.has(state.selected) ? state.selected : null;
+    const sel = state.selected;
     if (sel !== lastSel) {
       expanded.deps = false;
       expanded.dependants = false;
