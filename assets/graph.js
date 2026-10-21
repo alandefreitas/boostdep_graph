@@ -313,8 +313,7 @@ export function viewSet(g, id, mode, options, visible = null) {
   const keep = n => !visible || visible.has(n);
   const ids = [id];
   if (mode === 'around') {
-    for (const n of [...g.out.get(id).lib, ...g.in.get(id).lib]) if (keep(n)) ids.push(n);
-    return ids;
+    return [...new Set([id, ...g.out.get(id).lib, ...g.in.get(id).lib].filter(n => n === id || keep(n)))];
   }
   const groups = relationGroups(g, id, { tests: Boolean(options.tests), examples: Boolean(options.examples) });
   for (const rel of VIEW_RELS[mode]) {

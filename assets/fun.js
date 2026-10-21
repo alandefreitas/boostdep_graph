@@ -31,7 +31,7 @@ export function starPoints(R, inner = 0.45) {
 
 /** Star ornament of a node of radius r: outer radius `R` and radius `core` of the colored centre (shared by the graph and the legend samples). */
 export function ornamentGeom(r) {
-  const R = diamondGeom(r).rr * 1.45;
+  const R = diamondGeom(r).side;
   return { R, core: R * 0.3 };
 }
 
@@ -261,5 +261,5 @@ const MODES = {
   },
 };
 
-/** The registry; its keys are exactly FUN_NAMES (themes.js), which state.js and the head script of index.html rely on. */
+/** The registry, keyed by the FUN_NAMES (themes.js) that have a mode here; state.js and the head script of index.html rely on those names. */
 export const FUN = Object.fromEntries(FUN_NAMES.filter(n => MODES[n]).map(name => [name, { ...MODES[name], name, className: `fun-${name}` }]));
