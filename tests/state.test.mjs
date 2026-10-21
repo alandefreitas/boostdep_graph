@@ -94,3 +94,14 @@ test('malformed percent-encoding does not throw', () => {
   assert.equal(parseHash('#%E0%A4%A').selected, '%E0%A4%A');
   assert.deepEqual([...parseHash('#cat=%zz').categories], ['%zz']);
 });
+
+test('layout key: explicit values round-trip, absent or unknown means auto', () => {
+  assert.equal(createState().layout, null);
+  assert.equal(parseHash('#url').layout, null);
+  assert.equal(serializeHash(stateFrom('#url&layout=vertical')), '#url&layout=vertical');
+  assert.equal(serializeHash(stateFrom('#layout=horizontal')), '#layout=horizontal');
+  assert.equal(stateFrom('#url&layout=sideways').layout, null);
+  assert.equal(serializeHash(stateFrom('#url&layout=sideways')), '#url');
+  const hash = '#url&labels=0&cat=IO&std=11&layout=vertical';
+  assert.equal(serializeHash(stateFrom(hash)), hash);
+});

@@ -14,6 +14,7 @@ The page state lives in the URL hash, so views can be shared:
 - `#url&tests=1&examples=1`: also show test and example dependencies
 - `#url&labels=0`: only options that differ from the default are stored (`key=0` or `key=1`)
 - `#&cat=IO,Math&std=11,14`: filter by category and C++ standard
+- `#url&layout=vertical`: vertical layout (foundations at the bottom); `layout=horizontal` forces the sideways one. Without it the layout is automatic: vertical on portrait screens, horizontal otherwise
 
 Option keys (`=0` or `=1`): `background`, `deps`, `tdeps`, `rdeps`, `trdeps`, `category`, `paths`, `colorStd`, `sizeImportance`, `stdAltMarker`, `buildableMarker`, `toolMarker`, `deprecatedMarker`, `proposedMarker`, `labels` (all on by default), `tests` and `examples` (off by default). `cat=` lists the categories that stay lit, `cat=-` means none, and `cat=` with no name means only libraries without a category. `std=` lists the standards that stay lit (`03` also covers 98).
 

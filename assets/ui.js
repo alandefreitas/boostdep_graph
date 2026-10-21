@@ -46,7 +46,7 @@ function customSample(draw) {
  * @param {(fn: (state: object) => void) => void} onChange mutate state inside fn (store.change)
  * @param {{onLayout?: () => void, onClose?: () => void}} [handlers] `onLayout` is called after the panel
  *   collapses or expands (the stage size changed); `onClose` adds a close button to the header (phone drawer).
- * @returns {{update: (state: object) => void, isModified: () => boolean}}
+ * @returns {{update: (state: object, orientation: 'horizontal'|'vertical') => void, isModified: () => boolean}}
  */
 export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null } = {}) {
   const switches = new Map();
@@ -136,6 +136,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   reset.addEventListener('click', () => onChange(st => {
     st.options = { ...DEFAULT_OPTIONS };
     st.filters = { categories: null, cxxstd: null };
+    st.layout = null;
   }));
 
   // ---- group: selected library ----
@@ -175,6 +176,31 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
 
   // ---- group: libraries ----
   const g3 = group('Libraries');
+  const layoutBtns = new Map();
+  const layoutRow = h('div', 'lg-layout');
+  layoutRow.setAttribute('role', 'radiogroup');
+  layoutRow.setAttribute('aria-label', 'Layout');
+  layoutRow.appendChild(h('span', 'lg-label', 'Layout'));
+  const seg = h('div', 'lg-seg');
+  for (const [key, label] of [['horizontal', 'Horizontal'], ['vertical', 'Vertical']]) {
+    const b = h('button', 'lg-seg-btn', label);
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.addEventListener('click', () => onChange(st => { st.layout = key; }));
+    b.addEventListener('keydown', e => {
+      const keys = [...layoutBtns.keys()];
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const next = keys[(keys.indexOf(key) + step + keys.length) % keys.length];
+      layoutBtns.get(next).focus();
+      onChange(st => { st.layout = next; });
+    });
+    layoutBtns.set(key, b);
+    seg.appendChild(b);
+  }
+  layoutRow.appendChild(seg);
+  g3.body.appendChild(layoutRow);
   const stdChips = new Map();
   const stdCount = new Map(STDS.map(([k]) => [k, visibleModules(graph, { cxxstd: [k] }).size]));
   const chipWrap = h('div', 'lg-chips lg-stdchips');
@@ -292,8 +318,13 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   }
 
   // ---- state -> DOM ----
-  function update(state) {
+  function update(state, orientation) {
     const o = state.options;
+    for (const [key, b] of layoutBtns) {
+      b.setAttribute('aria-checked', String(key === orientation));
+      b.tabIndex = key === orientation ? 0 : -1;
+      b.classList.toggle('on', key === orientation);
+    }
     for (const [opt, input] of switches) input.checked = o[opt];
     const sel = state.selected;
     hint.hidden = Boolean(sel);
@@ -324,7 +355,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
     for (const [k, input] of stdChips) input.checked = !expStds || expStds.has(k);
     for (const [k, input] of catChips) input.checked = catIncluded(cats, k);
 
-    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds;
+    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds && !state.layout;
     reset.disabled = isDefault;
     root.classList.toggle('modified', !isDefault);
   }

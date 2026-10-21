@@ -415,6 +415,13 @@ code { font-family: var(--mono); }
 .lg-switch:checked { background: var(--orange); border-color: var(--orange); }
 .lg-switch:checked::before { transform: translateX(14px); background: #050816; }
 .lg-switch:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.lg-layout { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 6px 8px; }
+.lg-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--card-2); }
+.lg-seg-btn { padding: 3px 11px; font-size: 12px; font-weight: 600; color: var(--text-dim); background: transparent; border: 0; cursor: pointer; }
+.lg-seg-btn + .lg-seg-btn { border-left: 1px solid var(--border); }
+.lg-seg-btn:hover { color: var(--text); }
+.lg-seg-btn.on { background: var(--orange); color: #050816; }
+.lg-seg-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
 .lg-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 6px 6px 60px; }
 .lg-catchips { padding: 0 6px 4px; }
 .lg-chip {
@@ -644,6 +651,7 @@ code { font-family: var(--mono); }
   .lg-reset { min-height: 44px; padding: 0 16px; }
   .lg-group > summary { display: flex; align-items: center; min-height: 44px; padding-top: 0; padding-bottom: 0; }
   .lg-row { min-height: 48px; }
+  .lg-seg-btn { min-height: 40px; padding: 0 16px; font-size: 13px; }
   .lg-chip { min-height: 44px; padding: 0 14px 0 12px; font-size: 13px; }
   .lg-catchips .lg-chip { padding-left: 14px; }
   .lg-mini { min-height: 44px; padding: 0 16px; }

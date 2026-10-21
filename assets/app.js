@@ -134,11 +134,23 @@ function main() {
 
   let view = null;
   const imp = importance(graph);
+  // Aspect of the window, not of the stage: the stage narrows when the details panel docks beside it.
+  const isPortrait = () => window.innerHeight > window.innerWidth;
+  const effectiveLayout = () => store.state.layout ?? (isPortrait() ? 'vertical' : 'horizontal');
+  let orientation = effectiveLayout();
+  const applyOrientation = () => {
+    const next = effectiveLayout();
+    if (next === orientation) return false;
+    if (store.state.layout == null && document.activeElement === $('search')) return false;
+    orientation = next;
+    view.setLayout(layout(graph, { orientation }), orientation);
+    return true;
+  };
   const legend = createLegend($('legend'), graph, fn => store.change(fn), {
     onLayout: () => view?.relayout(),
     onClose: () => setDrawer(false),
   });
-  view = createGraphView($('graph'), graph, layout(graph), imp);
+  view = createGraphView($('graph'), graph, layout(graph, { orientation }), imp, orientation);
   view.onSelect = id => select(id !== null && id === store.state.selected ? null : id);
 
   const details = createDetails($('details'), graph, {
@@ -227,7 +239,9 @@ function main() {
   let stageVisible = stage.offsetWidth > 1 && stage.offsetHeight > 1;
   const showStage = () => {
     stageVisible = true;
+    applyOrientation();
     view.update(store.state);
+    legend.update(store.state, orientation);
     syncInset();
     view.relayout();
     if (!store.state.selected) view.fit();
@@ -252,16 +266,20 @@ function main() {
     if (vis && !stageVisible) showStage();
     else if (!vis) stageVisible = false;
   }).observe(stage);
+  window.addEventListener('resize', () => {
+    if (stageVisible && applyOrientation()) syncInset();
+    legend.update(store.state, effectiveLayout());
+  });
 
   const notice = $('notice');
   let lastSelected;
   store.subscribe(state => {
     if (state.selected !== lastSelected) { peek = true; paintSheet(); }
-    if (!stageHidden()) view.update(state);
+    if (!stageHidden() && !applyOrientation()) view.update(state);
     details.update(state);
     focusView.update(state);
     syncInset();
-    legend.update(state);
+    legend.update(state, effectiveLayout());
     $('m-legend').classList.toggle('modified', legend.isModified());
     if (state.notFound) {
       const f = state.filters;
@@ -276,6 +294,12 @@ function main() {
       lastSelected = state.selected;
     }
   });
+
+  // A direct load with a selection computes the grid before the details panel docks: relayout once so the hash gives the same picture as a click.
+  if (store.state.selected && orientation === 'vertical' && !stageHidden()) {
+    syncInset();
+    view.relayout();
+  }
 
   // Debug hook for the browser console and manual checks; the app itself never reads it.
   window.bdg = { graph, store, view };

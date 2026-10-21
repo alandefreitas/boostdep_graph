@@ -216,6 +216,30 @@ test('layout: deterministic and independent of input order', () => {
   assert.deepEqual([...layout(shuffled)].sort(), [...layout(g)].sort());
 });
 
+test('layout: vertical puts level 0 at the bottom and the top level at y = 0', () => {
+  const p = layout(g, { orientation: 'vertical' });
+  assert.equal(p.size, 9);
+  const top = Math.max(...[...g.modules.values()].map(m => m.level));
+  assert.equal(Math.min(...[...p.values()].map(q => q.y)), 0);
+  assert.equal(p.get('base').y, top);
+  assert.equal(p.get('loner').y, top);
+  assert.equal(p.get('core').y, top - 1);
+  assert.equal(p.get('app').y, top - 3);
+  const row = ids => ids.map(id => p.get(id).x);
+  assert.deepEqual(row(['base', 'loner']), [1 + 3 - 1, 1 + 3 - 1 + 1]);
+  assert.deepEqual(row(['core', 'leaf', 'util']), [1 + 3 - 1.5, 1 + 3 - 1.5 + 1, 1 + 3 - 1.5 + 2]);
+});
+
+test('layout: vertical is the horizontal grid transposed and flipped, and deterministic', () => {
+  const h = layout(g);
+  const v = layout(g, { orientation: 'vertical' });
+  const maxLevel = Math.max(...[...h.values()].map(q => q.x));
+  for (const [id, q] of h) assert.deepEqual(v.get(id), { x: q.y, y: maxLevel - q.x });
+  const shuffled = buildGraph({ ...data, modules: [...data.modules].reverse() });
+  assert.deepEqual([...layout(shuffled, { orientation: 'vertical' })].sort(), [...v].sort());
+  assert.deepEqual(layout(g, { orientation: 'horizontal' }), h);
+});
+
 test('importance and maxImportance', () => {
   const imp = importance(g);
   assert.equal(imp.get('base'), 7);

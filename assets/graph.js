@@ -356,23 +356,29 @@ export function visibleModules(g, { categories = null, cxxstd = null } = {}) {
 }
 
 /**
- * Fixed layout: x = module.level, y = row within the level (ids sorted), rows
- * centered per level as y = 1 + maxLevelSize - levelSize / 2 + i.
+ * Fixed layout. Rows are centered per level as 1 + maxLevelSize - levelSize / 2 + i (ids sorted).
+ * 'horizontal' (default): x = module.level, y = row. 'vertical': x = row, y = maxLevel - level, so
+ * level 0 is at the bottom and the top level at the top.
+ * @param {object} g from buildGraph()
+ * @param {{orientation?: 'horizontal'|'vertical'}} [opts]
  * @returns {Map<string, {x: number, y: number}>}
  */
-export function layout(g) {
+export function layout(g, { orientation = 'horizontal' } = {}) {
   const levels = new Map();
+  let maxLevel = 0;
   for (const id of g.order) {
     const l = g.modules.get(id).level;
+    maxLevel = Math.max(maxLevel, l);
     if (!levels.has(l)) levels.set(l, []);
     levels.get(l).push(id);
   }
   let maxSize = 0;
   for (const ids of levels.values()) maxSize = Math.max(maxSize, ids.length);
+  const vertical = orientation === 'vertical';
   const pos = new Map();
   for (const [l, ids] of levels) {
     const top = 1 + maxSize - ids.length / 2;
-    ids.forEach((id, i) => pos.set(id, { x: l, y: top + i }));
+    ids.forEach((id, i) => pos.set(id, vertical ? { x: top + i, y: maxLevel - l } : { x: l, y: top + i }));
   }
   return pos;
 }

@@ -1,6 +1,7 @@
 // Single state object and URL-hash (de)serialization.
 // cat=- means no category selected (empty set); cat= alone means only uncategorized modules (the '' sentinel).
-// Hash format: #<id>&key=0|1 (only options that differ from the default)&cat=IO,Math&std=11,14
+// Hash format: #<id>&key=0|1 (only options that differ from the default)&cat=IO,Math&std=11,14&layout=vertical
+// layout is absent when automatic (portrait window = vertical, otherwise horizontal).
 
 /** Every option key with its default. */
 export const DEFAULT_OPTIONS = Object.freeze({
@@ -27,6 +28,7 @@ export function createState() {
   return {
     selected: null,
     notFound: null,
+    layout: null,
     options: { ...DEFAULT_OPTIONS },
     filters: { categories: null, cxxstd: null },
   };
@@ -47,11 +49,11 @@ function safeDecode(s) {
 /**
  * Parse a location hash into a plain object. Unknown option keys are ignored.
  * @param {string} hash e.g. "#url&tests=1&cat=IO,Math"
- * @returns {{selected: string|null, options: Record<string, boolean>, categories: Set<string>|null, cxxstd: Set<string>|null}}
+ * @returns {{selected: string|null, options: Record<string, boolean>, categories: Set<string>|null, cxxstd: Set<string>|null, layout: 'horizontal'|'vertical'|null}}
  */
 export function parseHash(hash) {
   const parts = String(hash || '').replace(/^#/, '').split('&').filter(Boolean);
-  const res = { selected: null, options: {}, categories: null, cxxstd: null };
+  const res = { selected: null, options: {}, categories: null, cxxstd: null, layout: null };
   for (const p of parts) {
     const eq = p.indexOf('=');
     if (eq < 0) {
@@ -62,6 +64,7 @@ export function parseHash(hash) {
     const val = p.slice(eq + 1);
     if (key === 'cat') res.categories = val === '-' ? new Set() : new Set(val.split(',').map(safeDecode));
     else if (key === 'std') res.cxxstd = new Set(splitList(val));
+    else if (key === 'layout') res.layout = val === 'horizontal' || val === 'vertical' ? val : null;
     else if (Object.hasOwn(DEFAULT_OPTIONS, key) && (val === '0' || val === '1')) res.options[key] = val === '1';
   }
   return res;
@@ -79,6 +82,7 @@ export function serializeHash(state) {
   const list = s => [...s].map(encodeURIComponent).join(',');
   if (state.filters.categories) parts.push(`cat=${state.filters.categories.size ? list(state.filters.categories) : '-'}`);
   if (state.filters.cxxstd) parts.push(`std=${list(state.filters.cxxstd)}`);
+  if (state.layout === 'horizontal' || state.layout === 'vertical') parts.push(`layout=${state.layout}`);
   return parts.length ? `#${parts.join('&')}` : '';
 }
 
@@ -98,6 +102,7 @@ export function applyParsed(state, parsed, knownIds) {
   }
   state.options = { ...DEFAULT_OPTIONS, ...parsed.options };
   state.filters = { categories: parsed.categories, cxxstd: parsed.cxxstd };
+  state.layout = parsed.layout;
 }
 
 /**

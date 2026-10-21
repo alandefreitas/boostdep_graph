@@ -37,33 +37,47 @@ export function badgeGeom(r, angle) {
  * @param {object} graph from buildGraph()
  * @param {Map<string, {x: number, y: number}>} layout from layout()
  * @param {Map<string, number>} importance from importance()
+ * @param {'horizontal'|'vertical'} [orientation] orientation `layout` was computed for (drives grid steps and edge curves)
  * @returns {{onSelect: ((id: string|null) => void)|null, update: (state: object) => void, relayout: () => void,
+ *            setLayout: (layout: Map<string, {x: number, y: number}>, orientation: 'horizontal'|'vertical') => void,
  *            setInset: (v: number|{right?: number, bottom?: number}) => void, fit: (animate?: boolean) => void,
  *            focus: (id: string) => void, settle: () => void, stats: () => object}}
  *   The view API. Assign `onSelect` to receive node clicks (`null` when the background is clicked).
  */
-export function createGraphView(svg, graph, layout, importance) {
+export function createGraphView(svg, graph, layout, importance, orientation = 'horizontal') {
   const maxImp = maxImportance(importance) || 1;
   const host = svg.parentElement;
   const tooltip = host.querySelector('#tooltip');
 
   // Grid steps come from the stage size, measured at creation and on relayout() (legend collapse or expand).
-  // Toggling options never changes them, so nodes never move.
-  let gx0 = Infinity, gx1 = -Infinity, gy0 = Infinity, gy1 = -Infinity;
-  for (const p of layout.values()) {
-    gx0 = Math.min(gx0, p.x); gx1 = Math.max(gx1, p.x);
-    gy0 = Math.min(gy0, p.y); gy1 = Math.max(gy1, p.y);
-  }
+  // Toggling options never changes them, so nodes never move. setLayout() swaps the grid (orientation change).
+  let gx0 = 0, gx1 = 0, gy0 = 0, gy1 = 0;
+  let vertical = orientation === 'vertical';
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   let rMax = 14;
   let bounds = { x: 0, y: 0, w: 1, h: 1 };
   const pos = new Map();
   function computeGrid() {
+    gx0 = Infinity; gx1 = -Infinity; gy0 = Infinity; gy1 = -Infinity;
+    for (const p of layout.values()) {
+      gx0 = Math.min(gx0, p.x); gx1 = Math.max(gx1, p.x);
+      gy0 = Math.min(gy0, p.y); gy1 = Math.max(gy1, p.y);
+    }
     const areaW = Math.max(host.clientWidth || window.innerWidth, 400);
     const areaH = Math.max(host.clientHeight || window.innerHeight - 90, 300);
-    const xStep = clamp((areaW - 150) / Math.max(1, gx1 - gx0), 36, 150);
-    const yStep = clamp((areaH - 110) / Math.max(1, gy1 - gy0), 14, 56);
-    rMax = Math.min(14, yStep * 0.45);
+    const fitStep = (area, pad, span, lo, hi) => clamp((area - pad) / Math.max(1, span), lo, hi);
+    const spanX = gx1 - gx0, spanY = gy1 - gy0;
+    let xStep, yStep;
+    if (vertical) {
+      xStep = fitStep(areaW, 100, spanX, 22, 110);
+      yStep = fitStep(areaH, 110, spanY, 24, 90);
+      // Row step at its minimum means the fit is width-limited: stretch the levels by the overflow so the tree fills the height.
+      yStep = clamp(yStep * Math.max(1, (spanX * xStep + 140) / areaW), 24, 90);
+    } else {
+      xStep = fitStep(areaW, 150, spanX, 36, 150);
+      yStep = fitStep(areaH, 110, spanY, 14, 56);
+    }
+    rMax = Math.min(14, (vertical ? Math.min(xStep, yStep) : yStep) * 0.45);
     for (const [id, p] of layout) pos.set(id, { x: p.x * xStep, y: p.y * yStep });
     bounds = { x: gx0 * xStep - 70, y: gy0 * yStep - 40, w: (gx1 - gx0) * xStep + 140, h: (gy1 - gy0) * yStep + 90 };
   }
@@ -81,9 +95,12 @@ export function createGraphView(svg, graph, layout, importance) {
     if (d) return d;
     const p = pos.get(a);
     const q = pos.get(b);
-    const dx = q.x - p.x;
-    const c = Math.abs(dx) < 1 ? 70 : dx / 2;
-    d = `M${p.x},${p.y}C${p.x + c},${p.y} ${q.x - (Math.abs(dx) < 1 ? -70 : c)},${q.y} ${q.x},${q.y}`;
+    const [u0, v0, u1, v1] = vertical ? [p.y, p.x, q.y, q.x] : [p.x, p.y, q.x, q.y];
+    const du = u1 - u0;
+    const tiny = Math.abs(du) < 1;
+    const c = tiny ? 70 : du / 2;
+    const pt = (u, v) => (vertical ? `${v},${u}` : `${u},${v}`);
+    d = `M${pt(u0, v0)}C${pt(u0 + c, v0)} ${pt(u1 - (tiny ? -70 : c), v1)} ${pt(u1, v1)}`;
     dCache.set(key, d);
     return d;
   }
@@ -598,8 +615,18 @@ export function createGraphView(svg, graph, layout, importance) {
     else applyCamera();
   }
 
+  /** Swap the grid (new layout() result and its orientation), re-place everything and refit or refocus. */
+  function setLayout(next, nextOrientation) {
+    layout = next;
+    vertical = nextOrientation === 'vertical';
+    stopTween();
+    interacted = false;
+    relayout();
+  }
+
   fit();
   api.relayout = relayout;
+  api.setLayout = setLayout;
   api.setInset = setInset;
   // Debug/test hooks (not used by the app): label-placement stats and a synchronous settle().
   api.stats = stats;
