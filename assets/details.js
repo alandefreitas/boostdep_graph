@@ -5,15 +5,16 @@ import { h, moduleName, stdClass, stdLabel, BADGES, KIND_OPTION, enabledKinds } 
 /**
  * @param {HTMLElement} root the <aside>
  * @param {object} graph from buildGraph()
- * @param {{onSelect: (id: string) => void, onClose: () => void, onToggleHidden?: (hidden: boolean) => void}} handlers
+ * @param {{onSelect: (id: string) => void, onClose: () => void, onToggleFolded?: (folded: boolean) => void}} handlers
+ *   `onToggleFolded` runs after the panel folds to its rail or opens again
  */
-export function createDetails(root, graph, { onSelect, onClose, onToggleHidden }) {
+export function createDetails(root, graph, { onSelect, onClose, onToggleFolded }) {
   let shownKey = '';
   let folded = false;
   const setFolded = v => {
     folded = v;
-    root.classList.toggle('railed', v);
-    onToggleHidden?.(v);
+    root.classList.toggle('folded', v);
+    onToggleFolded?.(v);
   };
   const level = id => graph.modules.get(id).level;
   const name = id => moduleName(graph, id);

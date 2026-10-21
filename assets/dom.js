@@ -1,4 +1,34 @@
-// Small DOM and label helpers shared by the graph, details panel, legend and phone focus view.
+// Small DOM, SVG and label helpers shared by the graph, details panel, legend and phone focus view.
+
+const NS = 'http://www.w3.org/2000/svg';
+
+/** Element by id. */
+export const $ = id => document.getElementById(id);
+
+/** Create an SVG element with attributes, optionally appended to `parent`. */
+export function el(tag, attrs = {}, parent = null) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+/** Diamond (standard-alternative) side and halo-relevant radius for a node of radius r. */
+export function diamondGeom(r) {
+  const rr = r * 0.9;
+  return { rr, side: rr * 1.45 };
+}
+
+/** Badge symbol size and top-left offset for a node of radius r, at `angle` degrees (0 = right, clockwise). */
+export function badgeGeom(r, angle) {
+  const size = Math.max(9, Math.min(13, r * 0.9));
+  const a = (angle * Math.PI) / 180;
+  return {
+    size,
+    x: (Math.cos(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
+    y: (Math.sin(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
+  };
+}
 
 /** Create an element with an optional class and text. */
 export function h(tag, cls, text) {
@@ -21,12 +51,6 @@ export function stdClass(cxxstd) {
 export function stdLabel(m) {
   return `C++${m.cxxstd}${m.cxxstdInferred ? ' (inferred)' : ''}`;
 }
-
-/** Relation to the selection -> the option that switches it on (used by the graph, the lists and the legend). */
-export const REL_OPTION = {
-  dep: 'deps', tdep: 'tdeps', rdep: 'rdeps', trdep: 'trdeps', category: 'category',
-  testdep: 'tests', testrdep: 'tests', exampledep: 'examples', examplerdep: 'examples',
-};
 
 /** Extra edge kind -> the "include" option that turns it on (and its plural label). */
 export const KIND_OPTION = { test: 'tests', example: 'examples' };

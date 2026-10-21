@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildGraph, depsClosure, dependantsClosure, extraNeeds, extraDependants, relation, relations,
   dependencyPath, dependantPath, visibleModules, layout, importance, maxImportance,
-  cxxstdOrder, compareStd, relationGroups, expandStd,
+  cxxstdOrder, compareStd, relationGroups, expandStd, viewSet,
 } from '../assets/graph.js';
 import { data, cyclic } from './fixtures/graph.mjs';
 
@@ -314,4 +314,45 @@ test('expandStd and visibleModules treat 98 and 03 as one chip', () => {
   assert.deepEqual(sorted(visibleModules(g, { cxxstd: ['03'] })), ['base', 'util']);
   assert.deepEqual(sorted(visibleModules(g, { cxxstd: ['98'] })), ['base', 'util']);
   assert.deepEqual(sorted(visibleModules(g, { cxxstd: new Set(['03', '17']) })), ['app', 'base', 'util']);
+});
+
+const ALL_ON = { deps: true, tdeps: true, rdeps: true, trdeps: true, tests: false, examples: false };
+
+test('viewSet: around is the selection plus direct library dependencies and dependants', () => {
+  assert.deepEqual(sorted(viewSet(g, 'core', 'around', ALL_ON)), ['base', 'core', 'mid']);
+  assert.equal(viewSet(g, 'core', 'around', ALL_ON)[0], 'core');
+  assert.deepEqual(viewSet(g, 'loner', 'around', ALL_ON), ['loner']);
+});
+
+test('viewSet: deps and dependants include indirect relations and the selection', () => {
+  assert.deepEqual(sorted(viewSet(g, 'app', 'deps', ALL_ON)), ['app', 'base', 'core', 'mid']);
+  assert.deepEqual(sorted(viewSet(g, 'base', 'dependants', ALL_ON)), ['app', 'base', 'core', 'extra', 'leaf', 'mid', 'testtool', 'util']);
+  assert.deepEqual(viewSet(g, 'base', 'deps', ALL_ON), ['base']);
+  assert.deepEqual(viewSet(g, 'loner', 'dependants', ALL_ON), ['loner']);
+});
+
+test('viewSet: relation options switch their relations off', () => {
+  assert.deepEqual(sorted(viewSet(g, 'app', 'deps', { ...ALL_ON, tdeps: false })), ['app', 'mid']);
+  assert.deepEqual(sorted(viewSet(g, 'app', 'deps', { ...ALL_ON, deps: false })), ['app', 'base', 'core']);
+  assert.deepEqual(sorted(viewSet(g, 'base', 'dependants', { ...ALL_ON, rdeps: false, trdeps: false })), ['base']);
+});
+
+test('viewSet: test and example extras only with their options', () => {
+  assert.deepEqual(sorted(viewSet(g, 'leaf', 'deps', ALL_ON)), ['base', 'leaf']);
+  assert.deepEqual(sorted(viewSet(g, 'leaf', 'deps', { ...ALL_ON, tests: true })), ['base', 'leaf', 'util']);
+  assert.deepEqual(sorted(viewSet(g, 'util', 'dependants', { ...ALL_ON, tests: true })), ['extra', 'leaf', 'util']);
+  assert.ok(viewSet(g, 'core', 'deps', { ...ALL_ON, examples: true }).includes('extra'));
+});
+
+test('viewSet: visible filter drops modules but keeps the selection', () => {
+  const vis = visibleModules(g, { cxxstd: ['03'] });
+  assert.deepEqual(sorted(viewSet(g, 'base', 'around', ALL_ON, vis)), ['base', 'util']);
+  assert.deepEqual(sorted(viewSet(g, 'base', 'dependants', ALL_ON, vis)), ['base', 'util']);
+  assert.deepEqual(viewSet(g, 'core', 'around', ALL_ON, new Set(['base'])).sort(), ['base', 'core']);
+  assert.deepEqual(viewSet(g, 'core', 'deps', ALL_ON, new Set()), ['core']);
+});
+
+test('viewSet: unknown id is empty', () => {
+  assert.deepEqual(viewSet(g, 'nope', 'around', ALL_ON), []);
+  assert.deepEqual(viewSet(g, 'nope', 'deps', ALL_ON), []);
 });

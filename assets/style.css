@@ -462,9 +462,9 @@ code { font-family: var(--mono); }
 /* details: hide to a slim rail (tablet and desktop only) */
 .det-rail { display: none; }
 @media (min-width: 768px) {
-  .details.railed { width: 44px; }
-  .details.railed .det-head, .details.railed .det-body, .details.railed .det-foot { display: none; }
-  .details.railed .det-rail {
+  .details.folded { width: 44px; }
+  .details.folded .det-head, .details.folded .det-body, .details.folded .det-foot { display: none; }
+  .details.folded .det-rail {
     display: flex; flex-direction: column; align-items: center; gap: 10px;
     flex: 1; padding: 12px 4px; border: 0; background: transparent; color: var(--text); cursor: pointer;
   }
@@ -709,7 +709,6 @@ code { font-family: var(--mono); }
 .orn:not(.star) { pointer-events: none; }
 .decor, .decor * { pointer-events: none; }
 .fun-bg { display: none; }
-.lg-fun { display: none; }
 .lg-seg-btn:disabled { cursor: default; }
 .lg-layout.locked .lg-seg-btn:not(.on) { opacity: .45; }
 
@@ -800,16 +799,16 @@ html.fun-christmas {
 .fun-christmas .node.rel-self .star { stroke: var(--orange); }
 
 .lg-fun {
+  display: flex;
   align-items: center;
   gap: 8px;
   margin: 6px 10px 4px;
   padding: 7px 10px;
-  border: 1px solid rgba(255, 216, 107, .35);
   border-radius: var(--radius);
-  background: linear-gradient(90deg, rgba(214, 40, 57, .16), rgba(31, 157, 85, .16));
   font-size: 12.5px;
 }
-.fun-christmas .lg-fun:not([hidden]) { display: flex; }
-.lg-fun-star { color: #ffd86b; }
+.lg-fun[hidden] { display: none; }
 .lg-fun-title { font-weight: 700; }
-.lg-fun-back { margin-left: auto; padding: 0; border: 0; background: none; color: #ffd86b; text-decoration: underline; font-size: 12.5px; }
+.lg-fun-back { margin-left: auto; padding: 0; border: 0; background: none; text-decoration: underline; font-size: 12.5px; }
+.fun-christmas .lg-fun { border: 1px solid rgba(255, 216, 107, .35); background: linear-gradient(90deg, rgba(214, 40, 57, .16), rgba(31, 157, 85, .16)); }
+.fun-christmas .lg-fun-star, .fun-christmas .lg-fun-back { color: #ffd86b; }

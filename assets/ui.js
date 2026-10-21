@@ -1,9 +1,9 @@
 // Legend as control panel: every row shows a real sample (same SVG symbols and CSS classes as the graph),
 // a plain-words label and a switch. Also category and C++ standard filters, and Reset.
 import { DEFAULT_OPTIONS } from './state.js';
-import { relationGroups, visibleModules, expandStd, cxxstdOrder } from './graph.js';
-import { el as s, diamondGeom, badgeGeom, starPoints } from './render.js';
-import { h, stdClass, REL_OPTION, KIND_OPTION, BADGES, badgeOf } from './dom.js';
+import { relationGroups, visibleModules, expandStd, cxxstdOrder, REL_OPTION } from './graph.js';
+import { starPoints, ornamentGeom } from './fun.js';
+import { h, el as s, diamondGeom, badgeGeom, stdClass, KIND_OPTION, BADGES, badgeOf } from './dom.js';
 
 // One chip per standard; 98 and 03 share the '03' chip.
 const STDS = cxxstdOrder.filter(k => k !== '98').map(k => [k, k === '03' ? 'C++98/03' : `C++${k}`]);
@@ -20,11 +20,12 @@ function sample({ std = 'std-11', cls = '', r = 7, alt = false, badge = null, ha
   const g = s('g', { class: `node ${std} ${cls}${alt ? ' alt' : ''}`.trim(), transform: `translate(${cx},14)` }, svg);
   if (halo) s('circle', { class: 'halo', r: r + 6 }, g);
   if (alt) {
-    const { rr, side } = diamondGeom(r);
+    const { side } = diamondGeom(r);
     s('rect', { class: 'shape diamond', rx: 2, x: -side / 2, y: -side / 2, width: side, height: side, transform: 'rotate(45)' }, g);
     // Fun themes swap the diamond for a star ornament (CSS), as on the graph.
-    s('polygon', { class: 'orn star shape', points: starPoints(rr * 1.45) }, g);
-    s('circle', { class: 'orn star-core', r: rr * 0.44 }, g);
+    const orn = ornamentGeom(r);
+    s('polygon', { class: 'orn star shape', points: starPoints(orn.R) }, g);
+    s('circle', { class: 'orn star-core', r: orn.core }, g);
   } else s('circle', { class: 'shape', r }, g);
   if (badge) {
     const bg = badgeGeom(r, badge.angle);
@@ -47,14 +48,17 @@ function customSample(draw) {
  * @param {HTMLElement} root the <aside id="legend">
  * @param {object} graph from buildGraph()
  * @param {(fn: (state: object) => void) => void} onChange mutate state inside fn (store.change)
- * @param {{onLayout?: () => void, onClose?: () => void}} [handlers] `onLayout` is called after the panel
- *   collapses or expands (the stage size changed); `onClose` adds a close button to the header (phone drawer),
- *   `onLeaveFun` is called by the "Back to normal" link of the fun-mode note.
+ * @param {{onLayout?: () => void, onClose?: (() => void)|null, onLeaveFun?: (() => void)|null}} [handlers]
+ *   `onLayout` is called after the panel collapses or expands (the stage size changed); `onClose` adds a close button
+ *   to the header (phone drawer); `onLeaveFun` is called by the "Back to normal" link of the fun-mode note.
  * @returns {{update: (state: object, orientation: 'horizontal'|'vertical', fun?: object|null) => void, isModified: () => boolean}}
+ *   `update` takes the orientation the graph is drawn in and the fun mode in effect (an entry of FUN, or null); in a fun mode the
+ *   layout control is locked and Reset leaves the stored layout choice alone.
  */
 export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null, onLeaveFun = null } = {}) {
   const switches = new Map();
   const counts = new Map();
+  let inFun = false;
 
   // ---- generic pieces ----
   function row({ sampleEl, label, help, option, countKey, extra, graphOnly = false }) {
@@ -140,7 +144,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   reset.addEventListener('click', () => onChange(st => {
     st.options = { ...DEFAULT_OPTIONS };
     st.filters = { categories: null, cxxstd: null };
-    st.layout = null;
+    if (!inFun) st.layout = null;
   }));
 
   // ---- group: selected library ----
@@ -332,6 +336,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   // ---- state -> DOM ----
   function update(state, orientation, fun = null) {
     const o = state.options;
+    inFun = Boolean(fun);
     funNote.hidden = !fun;
     if (fun) funTitle.textContent = `${fun.label} mode`;
     layoutRow.classList.toggle('locked', Boolean(fun));
@@ -372,7 +377,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
     for (const [k, input] of stdChips) input.checked = !expStds || expStds.has(k);
     for (const [k, input] of catChips) input.checked = catIncluded(cats, k);
 
-    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds && !state.layout;
+    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds && (inFun || !state.layout);
     reset.disabled = isDefault;
     root.classList.toggle('modified', !isDefault);
   }

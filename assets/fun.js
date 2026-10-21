@@ -1,14 +1,68 @@
 // Fun modes: a theme that decorates the real graph. Each entry is one mode; adding another is one entry plus CSS.
 //
-//   { label, glyph, orientation, className,
+//   { label, glyph, orientation,
 //     backdrop(container)         fill the fixed, non-moving layer behind the graph (bokeh, snow) once,
-//     decorate(layers, info) }    draw into the camera layers {back, mid, front}; returns the extra margin {top, bottom}
+//     decorate(layers, info) }    draw into the camera layers {back, mid, front}; returns what render.js needs to fit and label them
 //
-// `info` (vertical layouts only): k (rough zoom, to turn label pixels into graph units), rows [{y, x0, x1}] top to bottom, top {x, y} (the top-level library),
-// base (the bottom row), rMax (largest node radius) and unit (a comfortable ornament size), all in graph units.
+// The registry adds `name` and `className` (`fun-<name>`, set on the root element) to every entry.
+//
+// `info` (vertical layouts only), all in graph units except k: rows [{y, x0, x1}] top to bottom, top {x, y} (the top-level library),
+// base (the bottom row), rMax (largest node radius), unit (a comfortable ornament size), k (rough zoom, to turn label pixels into
+// graph units) and bounds {x0, y0, x1, y1} (the padded box of the nodes, before any decoration margin).
+//
+// `decorate` returns {avoid, top, bottom, left, right}, in graph units: `avoid` is a list of [x0, y0, x1, y1] boxes labels must stay
+// out of, and top/bottom/left/right are how far the decorations reach past `info.bounds` on each side (0 when they fit inside).
 // Decorations are built once per layout and never touched per frame.
-import { el, starPoints } from './render.js';
+//
+// Per-node ornaments (addOrnaments, sizeOrnaments) are extra parts inside each node body that CSS shows only in the fun theme.
+import { el, diamondGeom } from './dom.js';
 import { FUN_NAMES } from './themes.js';
+
+/** Points of a 5-point star with outer radius `R` (pointing up) and inner radius `R * inner`. */
+export function starPoints(R, inner = 0.45) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 ? R * inner : R;
+    pts.push(`${(Math.cos(a) * rad).toFixed(2)},${(Math.sin(a) * rad).toFixed(2)}`);
+  }
+  return pts.join(' ');
+}
+
+/** Star ornament of a node of radius r: outer radius `R` and radius `core` of the colored centre (shared by the graph and the legend samples). */
+export function ornamentGeom(r) {
+  const R = diamondGeom(r).rr * 1.45;
+  return { R, core: R * 0.3 };
+}
+
+/** Size a node's ornament parts (see addOrnaments) for its current radius `nd.r`. No-op until the parts exist. */
+export function sizeOrnaments(nd) {
+  if (!nd.star) return;
+  const { r } = nd;
+  const { R, core } = ornamentGeom(r);
+  nd.star.setAttribute('points', starPoints(R));
+  nd.starCore.setAttribute('r', core.toFixed(2));
+  nd.gloss.setAttribute('r', r);
+  const cw = Math.max(2.4, r * 0.5);
+  nd.cap.setAttribute('x', (-cw / 2).toFixed(2));
+  nd.cap.setAttribute('y', (-r - cw * 0.55).toFixed(2));
+  nd.cap.setAttribute('width', cw.toFixed(2));
+  nd.cap.setAttribute('height', (cw * 0.8).toFixed(2));
+}
+
+/**
+ * Add a node's ornament parts, hidden unless a fun theme shows them (CSS): a glossy sheen, a cap, and a star for diamond nodes.
+ * Done the first time a fun mode is activated, so plain themes carry no extra elements. `nd` has `body`, `badges` and `r`.
+ */
+export function addOrnaments(nd) {
+  if (nd.star) return;
+  const add = (tag, cls, attrs) => nd.body.insertBefore(el(tag, { class: cls, ...attrs }), nd.badges[0].u);
+  nd.star = add('polygon', 'orn star shape');
+  nd.starCore = add('circle', 'orn star-core');
+  nd.gloss = add('circle', 'orn orn-gloss');
+  nd.cap = add('rect', 'orn orn-cap', { rx: 0.8 });
+  if (nd.r) sizeOrnaments(nd);
+}
 
 /** Small deterministic random generator so the decorations look the same on every load. */
 function rng(seed) {
@@ -58,8 +112,7 @@ function ball(g, x, y, r, color) {
 }
 
 function hangingStar(g, x, y, R, silver) {
-  const s = el('polygon', { points: starPoints(R, 0.46), transform: `translate(${f(x)},${f(y)})`, fill: silver ? '#cfd8ea' : 'url(#orn-gold)', stroke: silver ? '#6b778f' : '#8a6414', 'stroke-width': 0.8, 'stroke-linejoin': 'round' }, g);
-  return s;
+  el('polygon', { points: starPoints(R, 0.46), transform: `translate(${f(x)},${f(y)})`, fill: silver ? '#cfd8ea' : 'url(#orn-gold)', stroke: silver ? '#6b778f' : '#8a6414', 'stroke-width': 0.8, 'stroke-linejoin': 'round' }, g);
 }
 
 /** Point on a cubic Bezier. */
@@ -96,7 +149,7 @@ function christmasBackdrop(box) {
 }
 
 function christmasDecorate({ back, mid, front }, info) {
-  const { rows, top, base, rMax, unit: u } = info;
+  const { rows, top, base, rMax, unit: u, bounds } = info;
   const cx = top.x;
   // Smoothed half-width of each row: the silhouette and the places the garland hangs from.
   const half = rows.map(r => Math.max(Math.abs(r.x0 - cx), Math.abs(r.x1 - cx)));
@@ -144,8 +197,6 @@ function christmasDecorate({ back, mid, front }, info) {
     return { x: cx + side * (w + labelRoom + u * 2), y: rows[idx].y, side };
   });
   const avoid = [];
-  const nodeL = Math.min(...rows.map(r => r.x0));
-  const nodeR = Math.max(...rows.map(r => r.x1));
   const outL = Math.max(...anchors.map(a => cx - a.x));
   const outR = Math.max(...anchors.map(a => a.x - cx));
   const sag = u * 1.3;
@@ -179,8 +230,7 @@ function christmasDecorate({ back, mid, front }, info) {
   // The stack starts below the base row's labels; the mat follows from the stack's height.
   const stackH = [0, 1, 2].reduce((sum, row) => sum + Math.max(...GIFTS.filter(g => g[0] === row).map(g => g[3])), 0) * u;
   const matY = baseY + stackH + u * 0.15;
-  const mat = el('ellipse', { cx: f(cx), cy: f(matY), rx: f(u * 5.4), ry: f(u * 0.8), class: 'mat' }, front);
-  mat.setAttribute('stroke-width', 1.4);
+  el('ellipse', { cx: f(cx), cy: f(matY), rx: f(u * 5.4), ry: f(u * 0.8), class: 'mat', 'stroke-width': 1.4 }, front);
   const rowBottom = [matY - u * 0.15, 0, 0];
   const rowTop = [0, 0, 0];
   GIFTS.forEach(([row, dx, w, h, color, ribbon]) => {
@@ -194,10 +244,10 @@ function christmasDecorate({ back, mid, front }, info) {
   avoid.push([cx - u * 5.4, baseY - u * 0.3, cx + u * 5.4, matY + u]);
   return {
     avoid,
-    top: Math.max(0, top.y - 40 - (starY - R * 1.9)),
-    bottom: Math.max(0, matY + u * 0.9 - (base.y + 50)),
-    left: Math.max(0, outL + u * 1.3 - (cx - nodeL + 70)),
-    right: Math.max(0, outR + u * 1.3 - (nodeR - cx + 70)),
+    top: Math.max(0, bounds.y0 - (starY - R * 1.9)),
+    bottom: Math.max(0, matY + u * 0.9 - bounds.y1),
+    left: Math.max(0, bounds.x0 - (cx - outL - u * 1.3)),
+    right: Math.max(0, cx + outR + u * 1.3 - bounds.x1),
   };
 }
 
@@ -206,11 +256,10 @@ const MODES = {
     label: 'Christmas',
     glyph: '★',
     orientation: 'vertical',
-    className: 'fun-christmas',
     backdrop: christmasBackdrop,
     decorate: christmasDecorate,
   },
 };
 
 /** The registry; its keys are exactly FUN_NAMES (themes.js), which state.js and the head script of index.html rely on. */
-export const FUN = Object.fromEntries(FUN_NAMES.map(name => [name, MODES[name]]));
+export const FUN = Object.fromEntries(FUN_NAMES.filter(n => MODES[n]).map(name => [name, { ...MODES[name], name, className: `fun-${name}` }]));

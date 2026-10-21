@@ -6,6 +6,14 @@ An interactive single page that shows how the Boost libraries depend on each oth
 
 Click a library (or search for it) to see what it needs and what needs it. The legend on the page doubles as the control panel: every color, border, marker and edge style is explained there, and each row has a switch to show or hide it. Test and example dependencies are off by default and can be included with two switches.
 
+Using the page:
+
+- Click a library to select it; click it again (or the empty background, or press Escape) to unselect.
+- The details panel has a hide button (it folds to a slim rail with the library's name; click the rail to reopen it and the selection stays) and a close button (closes and unselects).
+- The view buttons under the zoom controls frame the selection: around it (direct dependencies and dependants), its dependencies, its dependents (both with the indirect ones), or fit to see the whole graph.
+- In the legend, Layout switches between the horizontal and the vertical layout.
+- The theme button (top right) opens a menu with Dark, Light and Christmas.
+
 ## Links and URL hash
 
 The page state lives in the URL hash, so views can be shared:

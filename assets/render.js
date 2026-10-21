@@ -1,47 +1,32 @@
 // Hand-written SVG renderer: builds the DOM once, then only toggles classes and attributes.
-import { relationMap, relationGroups, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
-import { h, stdClass, stdLabel, REL_OPTION, BADGES, enabledKinds } from './dom.js';
+import { relationMap, extraNeeds, extraDependants, visibleModules, maxImportance, viewSet, REL_OPTION } from './graph.js';
+import { h, el, diamondGeom, badgeGeom, stdClass, stdLabel, BADGES, enabledKinds } from './dom.js';
+import { addOrnaments, sizeOrnaments } from './fun.js';
+import { createControls } from './controls.js';
 
-const NS = 'http://www.w3.org/2000/svg';
 const MIN_R = 4.5;
 const LABEL_PX = 10.5;
 const MAX_K = 6;
 const CLICK_SLOP = 4;
+// Options for the view buttons' "has no dependencies" check: every relation on, no test or example extras, no filters.
+const ALL_RELS = { deps: true, tdeps: true, rdeps: true, trdeps: true, tests: false, examples: false };
 
-export function el(tag, attrs = {}, parent = null) {
-  const e = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-  if (parent) parent.appendChild(e);
-  return e;
-}
-
-/** Diamond (standard-alternative) side and halo-relevant radius for a node of radius r. */
-export function diamondGeom(r) {
-  const rr = r * 0.9;
-  return { rr, side: rr * 1.45 };
-}
-
-/** Points of a 5-point star with outer radius `R` (pointing up) and inner radius `R * inner`. */
-export function starPoints(R, inner = 0.45) {
-  const pts = [];
-  for (let i = 0; i < 10; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    const rad = i % 2 ? R * inner : R;
-    pts.push(`${(Math.cos(a) * rad).toFixed(2)},${(Math.sin(a) * rad).toFixed(2)}`);
-  }
-  return pts.join(' ');
-}
-
-/** Badge symbol size and top-left offset for a node of radius r, at `angle` degrees (0 = right, clockwise). */
-export function badgeGeom(r, angle) {
-  const size = Math.max(9, Math.min(13, r * 0.9));
-  const a = (angle * Math.PI) / 180;
-  return {
-    size,
-    x: (Math.cos(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
-    y: (Math.sin(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
-  };
-}
+/**
+ * @typedef {object} GraphView
+ * @property {((id: string|null) => void)|null} onSelect assign to receive node clicks (`null` when the background is clicked)
+ * @property {(state: object) => void} update repaint classes, sizes and edges for a store state
+ * @property {() => void} relayout recompute the grid from the stage size and redraw (also the decorations)
+ * @property {(layout: Map<string, {x: number, y: number}>, orientation: 'horizontal'|'vertical') => void} setLayout swap the layout, re-place everything and refit or refocus
+ * @property {(mode: object|null, redraw?: boolean, state?: object|null) => void} setDecor switch the fun-mode decorations (a FUN entry or null);
+ *   `redraw` false only stores the mode (stage hidden); `state` is the state the redraw should show
+ * @property {(v: number|{right?: number, bottom?: number}) => boolean} setInset reserve space under an overlaid panel or sheet; true when it changed
+ * @property {(animate?: boolean) => void} fit frame the whole graph
+ * @property {(id: string) => void} focus select-and-frame: the library with its direct dependencies and dependants ("around")
+ * @property {(ids: string[]) => void} focusSet frame the given libraries
+ * @property {() => void} refocus re-run the last framing (used when the usable area changes)
+ * @property {() => void} settle place labels now instead of after the camera stops (debug and tests)
+ * @property {{labelsShown: number, labelsTotal: number, minRadius: number}} stats label-placement figures of the last settle
+ */
 
 /**
  * @param {SVGSVGElement} svg
@@ -49,26 +34,25 @@ export function badgeGeom(r, angle) {
  * @param {Map<string, {x: number, y: number}>} layout from layout()
  * @param {Map<string, number>} importance from importance()
  * @param {'horizontal'|'vertical'} [orientation] orientation `layout` was computed for (drives grid steps and edge curves)
- * @returns {{onSelect: ((id: string|null) => void)|null, update: (state: object) => void, relayout: () => void,
- *            setLayout: (layout: Map<string, {x: number, y: number}>, orientation: 'horizontal'|'vertical') => void,
- *            setInset: (v: number|{right?: number, bottom?: number}) => void, fit: (animate?: boolean) => void,
- *            focus: (id: string) => void, focusSet: (ids: string[]) => void, refocus: () => void, settle: () => void, stats: () => object}}
- *   The view API (also `setDecor(mode, redraw, state)` for fun-mode decorations; `state` is the state the redraw should show). Assign `onSelect` to receive node clicks (`null` when the background is clicked).
+ * @param {() => number} [dockedWidth] width in px (with the gap) the docked details panel takes from the stage; 0 when it overlays, is hidden or is a phone sheet
+ * @returns {GraphView}
  */
-export function createGraphView(svg, graph, layout, importance, orientation = 'horizontal') {
+export function createGraphView(svg, graph, layout, importance, orientation = 'horizontal', dockedWidth = () => 0) {
   const maxImp = maxImportance(importance) || 1;
   const host = svg.parentElement;
   const tooltip = host.querySelector('#tooltip');
 
-  // Grid steps come from the stage size, measured at creation and on relayout() (legend collapse or expand).
-  // Toggling options never changes them, so nodes never move. setLayout() swaps the grid (orientation change).
+  // Grid steps come from the stage size, measured at creation and on relayout(); relayout() runs when the legend collapses or
+  // expands, the phone stage appears, and the layout or the fun mode changes. The stage is always measured as if the docked
+  // details panel were closed (`dockedWidth` adds its width back), so every path gives the same grid. Toggling options and
+  // docking the panel never re-measure, so nodes never move. setLayout() swaps the grid (orientation change).
   let gx0 = 0, gx1 = 0, gy0 = 0, gy1 = 0;
   let vertical = orientation === 'vertical';
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   let rMax = 14;
   let bounds = { x: 0, y: 0, w: 1, h: 1 };
   const pos = new Map();
-  // Fun-mode decorations: the active mode (see fun.js) and the extra margin it needs above and below the graph.
+  // Fun-mode decorations: the active mode (see fun.js), the extra margin it needs on all four sides, and the boxes labels avoid.
   let decorMode = null;
   let decorPad = { top: 0, bottom: 0, left: 0, right: 0 };
   let decorAvoid = [];
@@ -79,7 +63,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
       gx0 = Math.min(gx0, p.x); gx1 = Math.max(gx1, p.x);
       gy0 = Math.min(gy0, p.y); gy1 = Math.max(gy1, p.y);
     }
-    const areaW = Math.max(host.clientWidth || window.innerWidth, 400);
+    const areaW = Math.max(host.clientWidth ? host.clientWidth + dockedWidth() : window.innerWidth, 400);
     const areaH = Math.max(host.clientHeight || window.innerHeight - 90, 300);
     const fitStep = (area, pad, span, lo, hi) => clamp((area - pad) / Math.max(1, span), lo, hi);
     const spanX = gx1 - gx0, spanY = gy1 - gy0;
@@ -128,7 +112,15 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     }
     const sorted = [...rows.values()].sort((a, b) => a.y - b.y);
     const top = sorted[0];
-    const info = { rows: sorted, top: { x: (top.x0 + top.x1) / 2, y: top.y }, base: sorted[sorted.length - 1], rMax, unit: rMax * 2.4, k: Math.min(size().w / bounds.w, size().h / bounds.h) * 0.85 };
+    const info = {
+      rows: sorted,
+      top: { x: (top.x0 + top.x1) / 2, y: top.y },
+      base: sorted[sorted.length - 1],
+      rMax,
+      unit: rMax * 2.4,
+      k: Math.min(size().w / bounds.w, size().h / bounds.h) * 0.85,
+      bounds: { x0: bounds.x, y0: bounds.y, x1: bounds.x + bounds.w, y1: bounds.y + bounds.h },
+    };
     const pad = decorMode.decorate({ back: gDecorBack, mid: gDecorMid, front: gDecorFront }, info);
     if (pad?.avoid) decorAvoid = pad.avoid;
     if (pad) decorPad = { top: pad.top || 0, bottom: pad.bottom || 0, left: pad.left || 0, right: pad.right || 0 };
@@ -173,36 +165,6 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     const label = el('text', { class: 'label' }, g);
     label.textContent = m.name || id;
     nodes.set(id, { id, m, g, body, halo, circle, diamond, badges, label, cls: '', r: 0, s: 1, alt: Boolean(m.stdAlternatives?.length), off: false });
-  }
-
-  /** Size a node's ornament parts (see ensureOrnaments) for its current radius. */
-  function sizeOrnaments(nd) {
-    const { r } = nd;
-    const sr = diamondGeom(r).rr * 1.45;
-    nd.star.setAttribute('points', starPoints(sr));
-    nd.starCore.setAttribute('r', (sr * 0.3).toFixed(2));
-    nd.gloss.setAttribute('r', r);
-    const cw = Math.max(2.4, r * 0.5);
-    nd.cap.setAttribute('x', (-cw / 2).toFixed(2));
-    nd.cap.setAttribute('y', (-r - cw * 0.55).toFixed(2));
-    nd.cap.setAttribute('width', cw.toFixed(2));
-    nd.cap.setAttribute('height', (cw * 0.8).toFixed(2));
-  }
-
-  /**
-   * Ornament parts, hidden unless a fun theme shows them (CSS): a glossy sheen, a cap, and a star for diamond nodes.
-   * Created the first time a fun mode is activated, so plain themes carry no extra elements.
-   */
-  function ensureOrnaments() {
-    for (const nd of nodes.values()) {
-      if (nd.star) continue;
-      const add = (tag, cls, attrs) => nd.body.insertBefore(el(tag, { class: cls, ...attrs }), nd.badges[0].u);
-      nd.star = add('polygon', 'orn star shape');
-      nd.starCore = add('circle', 'orn star-core');
-      nd.gloss = add('circle', 'orn orn-gloss');
-      nd.cap = add('rect', 'orn orn-cap', { rx: 0.8 });
-      if (nd.r) sizeOrnaments(nd);
-    }
   }
 
   // ---- camera ----
@@ -426,34 +388,13 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
 
   // The framing the user last asked for ('around' | 'deps' | 'dependants'); null after fit. Re-run when the usable area changes.
   let viewMode = null;
-
-  /**
-   * Ids of the visible, highlighted modules for a view mode, always including the selection.
-   * 'deps' = dependency relations (dep, tdep, test/example needs); 'dependants' = dependant relations; each only when its option is on.
-   */
-  const VIEW_RELS = {
-    deps: ['dep', 'tdep', 'testdep', 'exampledep'],
-    dependants: ['rdep', 'trdep', 'testrdep', 'examplerdep'],
-  };
   // Visible set computed by the last update() (includes the selection).
   let lastVisible = null;
-  function viewIds(mode, onlyVisible = true, allOptions = false) {
-    if (!selId) return [];
-    if (mode === 'around') return [selId, ...graph.out.get(selId).lib, ...graph.in.get(selId).lib];
-    const o = lastState.options;
-    const groups = relationGroups(graph, selId, allOptions ? { tests: false, examples: false } : { tests: o.tests, examples: o.examples });
-    const ids = [selId];
-    for (const rel of VIEW_RELS[mode]) {
-      if (!allOptions && !o[REL_OPTION[rel]]) continue;
-      for (const id of groups[rel]) if (!onlyVisible || lastVisible.has(id)) ids.push(id);
-    }
-    return ids;
-  }
 
   /** Frame a view mode for the selection and remember it. */
   function showView(mode) {
     if (!selId || !lastState) return;
-    const ids = viewIds(mode);
+    const ids = viewSet(graph, selId, mode, lastState.options, lastVisible);
     if (ids.length < 2 && mode !== 'around') return;
     viewMode = mode;
     focusSet(ids);
@@ -629,7 +570,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
         nd.diamond.setAttribute('height', s);
         nd.diamond.setAttribute('transform', 'rotate(45)');
         nd.halo.setAttribute('r', (alt ? dr : r) + 6);
-        if (nd.star) sizeOrnaments(nd);
+        sizeOrnaments(nd);
         for (const b of nd.badges) {
           const bg = badgeGeom(r, b.angle);
           b.u.setAttribute('x', bg.x);
@@ -727,70 +668,32 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     else fitK = f.k;
   }).observe(svg);
 
-  const zoomBy = f => { const { l, w, h } = size(); interacted = true; stopTween(); zoomAt(l + w / 2, h / 2, f); };
-  host.querySelector('#zoom-in')?.addEventListener('click', () => zoomBy(1.4));
-  host.querySelector('#zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.4));
-  host.querySelector('#zoom-fit')?.addEventListener('click', () => { interacted = false; fit(true); });
-
-  const viewBtns = {
-    around: host.querySelector('#view-around'),
-    deps: host.querySelector('#view-deps'),
-    dependants: host.querySelector('#view-dependants'),
-  };
-  const ARROWS = {
-    deps: { horizontal: 'M13 9H5M8 6L5 9L8 12', vertical: 'M9 5V13M6 10L9 13L12 10' },
-    dependants: { horizontal: 'M5 9H13M10 6L13 9L10 12', vertical: 'M9 13V5M6 8L9 5L12 8' },
-  };
-  function paintViewIcons() {
-    const o = vertical ? 'vertical' : 'horizontal';
-    const svgOf = inner => `<svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
-    if (viewBtns.around) viewBtns.around.innerHTML = svgOf('<circle cx="9" cy="9" r="5.5"/><circle cx="9" cy="9" r="1.4" fill="currentColor" stroke="none"/>');
-    for (const key of ['deps', 'dependants']) {
-      if (viewBtns[key]) viewBtns[key].innerHTML = svgOf(`<circle cx="9" cy="9" r="7.5" opacity="0.55"/><path d="${ARROWS[key][o]}"/>`);
-    }
-  }
+  const ctl = createControls(host, svg, {
+    zoomBy(f) { const { l, w, h } = size(); interacted = true; stopTween(); zoomAt(l + w / 2, h / 2, f); },
+    fit() { interacted = false; fit(true); },
+    showView,
+  });
   function paintViewButtons() {
-    const name = selId ? graph.modules.get(selId)?.name || selId : '';
-    const empty = { deps: !selId, dependants: !selId };
-    const text = {
-      around: selId ? `Around ${name}` : 'Around the selected library',
-      deps: 'Dependencies of the selected library',
-      dependants: 'Dependents of the selected library',
-    };
+    let info = null;
     if (selId) {
-      const noun = { deps: 'dependencies', dependants: 'dependents' };
-      for (const key of ['deps', 'dependants']) {
-        empty[key] = viewIds(key).length < 2;
-        text[key] = !empty[key] ? `${name}'s ${noun[key]}`
-          : viewIds(key, false, true).length > 1 ? `No visible ${noun[key]} of ${name}` : `${name} has no ${noun[key]}`;
+      const o = lastState.options;
+      const others = (mode, options, visible) => viewSet(graph, selId, mode, options, visible).length - 1;
+      info = { name: graph.modules.get(selId)?.name || selId };
+      for (const mode of ['deps', 'dependants']) {
+        // `total` only matters for the tooltip of an empty view, so it is computed just then.
+        const count = others(mode, o, lastVisible);
+        info[mode] = { count, total: count > 0 ? count : others(mode, ALL_RELS, null) };
       }
-      if (empty[viewMode]) viewMode = null;
     }
-    const off = { around: !selId, ...empty };
-    for (const [key, btn] of Object.entries(viewBtns)) {
-      if (!btn) continue;
-      if (off[key] && document.activeElement === btn) host.querySelector('#zoom-fit')?.focus();
-      btn.disabled = off[key];
-      btn.title = text[key];
-      btn.setAttribute('aria-label', text[key]);
-    }
+    const empty = ctl.paintViews(info);
+    if (selId && empty[viewMode]) viewMode = null;
   }
-  viewBtns.around?.addEventListener('click', () => showView('around'));
-  viewBtns.deps?.addEventListener('click', () => showView('deps'));
-  viewBtns.dependants?.addEventListener('click', () => showView('dependants'));
-  paintViewIcons();
+  ctl.paintIcons(vertical);
 
-  const controls = host.querySelector('.zoom-controls');
-  /** Measure the button column: reserve its width on the left, keep labels off it, and use two columns when it would not fit above the sheet. */
+  /** Measure the button column: reserve its width on the left and keep labels off it. */
   function layoutControls() {
-    if (!controls) return;
-    const r = svg.getBoundingClientRect();
-    if (!r.height) return;
-    controls.classList.remove('two-col');
-    if (controls.getBoundingClientRect().height > r.height - insetBottom - 24) controls.classList.add('two-col');
-    const c = controls.getBoundingClientRect();
-    leftInset = Math.max(0, c.right - r.left + 8);
-    ctrlBox = [c.left - r.left - 4, c.top - r.top - 4, c.right - r.left + 4, c.bottom - r.top + 4];
+    const m = ctl.measure(insetBottom);
+    if (m) ({ leftInset, ctrlBox } = m);
   }
 
   function relayout() {
@@ -810,12 +713,12 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
 
   /**
    * Reserve space covered by an overlaid details panel; fit and focus centre in what is left.
-   * A number reserves that many px on the right; {right, bottom} also reserves a bottom sheet.
+   * A number reserves that many px on the right; {right, bottom} also reserves a bottom sheet. Returns whether anything changed.
    */
   function setInset(v) {
     const right = typeof v === 'number' ? v : v.right || 0;
     const bottom = typeof v === 'number' ? 0 : v.bottom || 0;
-    if (right === inset && bottom === insetBottom) return;
+    if (right === inset && bottom === insetBottom) return false;
     inset = right;
     insetBottom = bottom;
     layoutControls();
@@ -823,13 +726,14 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     if (selId) refocus();
     else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
     else applyCamera();
+    return true;
   }
 
   /** Swap the grid (new layout() result and its orientation), re-place everything and refit or refocus. */
   function setLayout(next, nextOrientation) {
     layout = next;
     vertical = nextOrientation === 'vertical';
-    paintViewIcons();
+    ctl.paintIcons(vertical);
     stopTween();
     interacted = false;
     relayout();
@@ -841,7 +745,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
    */
   function setDecor(mode, redraw = true, state = null) {
     decorMode = mode;
-    if (mode) ensureOrnaments();
+    if (mode) for (const nd of nodes.values()) addOrnaments(nd);
     if (redraw) {
       if (state) lastState = state;
       if (!selId) interacted = false;

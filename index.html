@@ -6,7 +6,7 @@
 <title>Boost Dependency Graph</title>
 <meta name="description" content="Interactive map of how the libraries in Boost depend on each other: select a library to see what it needs and who needs it.">
 <meta name="color-scheme" content="dark light">
-<script>/* F = FUN_NAMES of assets/themes.js (class fun-<name>); keep them in sync */try{var F=['christmas'],m=/[#&]theme=([a-z]+)(&|$)/.exec(location.hash),t=m?m[1]:localStorage.getItem('bdg-theme'),c=document.documentElement.classList;if(t==='light')c.remove('dark');else if(F.indexOf(t)>=0)c.add('fun-'+t)}catch(e){}</script>
+<script>/* F = FUN_NAMES of assets/themes.js (root class fun-<name>); keep them in sync. An unknown theme= falls back to the saved theme, as state.js does */try{var F=['christmas'],m=/[#&]theme=([a-z]+)(&|$)/.exec(location.hash),t=m&&['dark','light'].concat(F).indexOf(m[1])>=0?m[1]:localStorage.getItem('bdg-theme'),c=document.documentElement.classList;if(t==='light')c.remove('dark');else if(F.indexOf(t)>=0)c.add('fun-'+t)}catch(e){}</script>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>

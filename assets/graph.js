@@ -285,6 +285,45 @@ export function relationGroups(g, selected, opts) {
   return ranked(g, selected, opts).groups;
 }
 
+/** Relation to the selection -> the option that switches it on (used by the graph, the lists, the legend and viewSet). */
+export const REL_OPTION = {
+  dep: 'deps', tdep: 'tdeps', rdep: 'rdeps', trdep: 'trdeps', category: 'category',
+  testdep: 'tests', testrdep: 'tests', exampledep: 'examples', examplerdep: 'examples',
+};
+
+const VIEW_RELS = {
+  deps: ['dep', 'tdep', 'testdep', 'exampledep'],
+  dependants: ['rdep', 'trdep', 'testrdep', 'examplerdep'],
+};
+
+/**
+ * Ids framed by a view button for `id`, selection first.
+ * 'around': direct library dependencies and dependants. 'deps' / 'dependants': every highlighted dependency (or dependant)
+ * relation whose option is on in `options`, indirect ones and test/example extras included.
+ * `visible` (a Set, e.g. from visibleModules) drops filtered-out modules; the selection is always kept. Omit it for no filtering.
+ * @param {object} g
+ * @param {string} id
+ * @param {'around'|'deps'|'dependants'} mode
+ * @param {{deps?: boolean, tdeps?: boolean, rdeps?: boolean, trdeps?: boolean, tests?: boolean, examples?: boolean}} options
+ * @param {Set<string>|null} [visible]
+ * @returns {string[]}
+ */
+export function viewSet(g, id, mode, options, visible = null) {
+  if (!g.modules.has(id)) return [];
+  const keep = n => !visible || visible.has(n);
+  const ids = [id];
+  if (mode === 'around') {
+    for (const n of [...g.out.get(id).lib, ...g.in.get(id).lib]) if (keep(n)) ids.push(n);
+    return ids;
+  }
+  const groups = relationGroups(g, id, { tests: Boolean(options.tests), examples: Boolean(options.examples) });
+  for (const rel of VIEW_RELS[mode]) {
+    if (!options[REL_OPTION[rel]]) continue;
+    for (const n of groups[rel]) if (keep(n)) ids.push(n);
+  }
+  return ids;
+}
+
 function bfsPath(g, from, to, sorted) {
   if (!g.modules.has(from) || !g.modules.has(to)) return null;
   if (from === to) return [from];

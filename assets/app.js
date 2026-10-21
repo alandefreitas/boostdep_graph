@@ -1,133 +1,14 @@
 // Wiring: data -> graph -> store -> views.
 import { buildGraph, layout, importance } from './graph.js';
-import { createStore, THEMES } from './state.js';
-import { FUN } from './fun.js';
+import { createStore } from './state.js';
+import { setupTheme } from './theme-menu.js';
 import { createGraphView } from './render.js';
 import { createDetails } from './details.js';
 import { createLegend } from './ui.js';
 import { createFocus } from './focus.js';
-import { h } from './dom.js';
+import { h, $ } from './dom.js';
 
 const data = window.BOOSTDEP_DATA;
-const $ = id => document.getElementById(id);
-
-const THEME_KEY = 'bdg-theme';
-const PREV_KEY = 'bdg-theme-prev';
-const THEME_ITEMS = [
-  { name: 'dark', label: 'Dark', glyph: '\u263E' },
-  { name: 'light', label: 'Light', glyph: '\u2600' },
-  ...Object.entries(FUN).map(([name, f]) => ({ name, label: f.label, glyph: f.glyph })),
-];
-
-function readKey(key) {
-  try {
-    const v = localStorage.getItem(key);
-    return THEMES.includes(v) ? v : null;
-  } catch { return null; }
-}
-function writeKey(key, v) {
-  try { localStorage.setItem(key, v); } catch { /* storage unavailable */ }
-}
-
-/**
- * Theme menu (Dark, Light, one entry per fun mode). The theme in effect is the hash's `theme=` or else the saved choice.
- * A menu choice is saved; it is written to the hash only for a fun mode, or when the hash already carried a theme,
- * so shared links carry the joke while normal links stay clean.
- */
-function setupTheme(store) {
-  const btn = $('theme');
-  const menu = $('theme-menu');
-  const root = document.documentElement;
-  const bg = $('fun-bg');
-  const now = state => state.theme ?? readKey(THEME_KEY) ?? 'dark';
-  let lastFun;
-
-  const items = THEME_ITEMS.map(it => {
-    const b = h('button', 'theme-item');
-    b.type = 'button';
-    b.setAttribute('role', 'menuitemradio');
-    b.tabIndex = -1;
-    b.append(h('span', 'theme-glyph', it.glyph), h('span', 'theme-label', it.label));
-    b.addEventListener('click', () => { choose(it.name); close(true); });
-    menu.appendChild(b);
-    return { ...it, b };
-  });
-
-  // Where "Back to normal" goes: the saved plain theme, else the plain one in effect when the fun mode was picked
-  // (which may have come from the link's theme=).
-  const prev = () => {
-    const s = readKey(THEME_KEY);
-    if (s && !FUN[s]) return s;
-    const p = readKey(PREV_KEY);
-    return p && !FUN[p] ? p : 'dark';
-  };
-
-  function choose(name) {
-    const cur = now(store.state);
-    if (FUN[name] && !FUN[cur]) writeKey(PREV_KEY, cur);
-    writeKey(THEME_KEY, name);
-    store.change(s => { s.theme = FUN[name] ? name : s.theme && !FUN[s.theme] ? name : null; });
-  }
-
-  /** Paint the theme for `state`; returns the fun mode in effect and whether it changed. */
-  function apply(state) {
-    const name = now(state);
-    const fun = FUN[name] ?? null;
-    root.classList.toggle('dark', name !== 'light');
-    for (const f of Object.values(FUN)) root.classList.toggle(f.className, f === fun);
-    const it = items.find(i => i.name === name);
-    btn.textContent = it.glyph;
-    btn.title = `Theme: ${it.label}`;
-    btn.setAttribute('aria-label', `Theme: ${it.label}`);
-    for (const i of items) i.b.setAttribute('aria-checked', String(i.name === name));
-    const changed = fun !== lastFun;
-    if (changed) {
-      lastFun = fun;
-      bg.replaceChildren();
-      fun?.backdrop(bg);
-    }
-    return { fun, changed };
-  }
-
-  const isOpen = () => !menu.hidden;
-  function open(focusLast = false) {
-    menu.hidden = false;
-    btn.setAttribute('aria-expanded', 'true');
-    const checked = items.find(i => i.b.getAttribute('aria-checked') === 'true') ?? items[0];
-    (focusLast ? items[items.length - 1] : checked).b.focus();
-  }
-  function close(refocus = false) {
-    if (!isOpen()) return;
-    menu.hidden = true;
-    btn.setAttribute('aria-expanded', 'false');
-    if (refocus) btn.focus();
-  }
-  btn.addEventListener('click', () => (isOpen() ? close() : open()));
-  btn.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      open(e.key === 'ArrowUp');
-    }
-  });
-  menu.addEventListener('keydown', e => {
-    const at = items.findIndex(i => i.b === document.activeElement);
-    const go = i => { e.preventDefault(); items[(i + items.length) % items.length].b.focus(); };
-    if (e.key === 'ArrowDown') go(at + 1);
-    else if (e.key === 'ArrowUp') go(at - 1);
-    else if (e.key === 'Home') go(0);
-    else if (e.key === 'End') go(items.length - 1);
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
-    else if (e.key === 'Tab') close();
-  });
-  document.addEventListener('pointerdown', e => {
-    if (isOpen() && !e.target.closest('.theme-wrap')) close();
-  });
-
-  // A fun mode that comes from storage also goes into the link, so a copied URL carries it.
-  if (!store.state.theme && FUN[now(store.state)]) store.change(s => { s.theme = now(s); });
-
-  return { apply, choose, leaveFun: () => choose(prev()) };
-}
 
 function setupStamp() {
   const s = data.stamp;
@@ -154,10 +35,10 @@ function setupSearch(graph, store, select) {
     if (active >= 0) list.children[active].scrollIntoView({ block: 'nearest' });
   };
   const choose = id => {
-    select(id);
     input.value = '';
     input.blur();
     close();
+    select(id);
   };
   const render = () => {
     const q = input.value.trim().toLowerCase();
@@ -255,17 +136,22 @@ function main() {
     onClose: () => setDrawer(false),
     onLeaveFun: () => theme.leaveFun(),
   });
-  view = createGraphView($('graph'), graph, layout(graph, { orientation }), imp, orientation);
+  // Width the docked (in-flow) details panel takes from the stage, gap included: added back so the grid ignores the panel.
+  const dockedWidth = () => {
+    const d = $('details');
+    if (d.hidden || mq.matches || getComputedStyle(d).position !== 'static') return 0;
+    return d.offsetWidth + (parseFloat(getComputedStyle(d.parentElement).columnGap) || 0);
+  };
+  view = createGraphView($('graph'), graph, layout(graph, { orientation }), imp, orientation, dockedWidth);
   if (fun) view.setDecor(fun, !stageHidden());
   view.onSelect = id => select(id !== null && id === store.state.selected ? null : id);
 
   const details = createDetails($('details'), graph, {
     onSelect: select,
     onClose: () => select(null),
-    onToggleHidden: () => {
+    onToggleFolded: () => {
       if (mq.matches) return;
-      syncInset();
-      if (store.state.selected) view.refocus();
+      if (!syncInset() && store.state.selected) view.refocus();
     },
   });
 
@@ -276,6 +162,7 @@ function main() {
     onOpenDetails: () => { peek = false; paintSheet(); syncInset(); },
   });
 
+  // Returns whether the graph's reserved inset changed (setInset has then already re-framed the selection).
   const syncInset = () => {
     const d = $('details');
     if (mq.matches) {
@@ -284,12 +171,12 @@ function main() {
       document.body.style.setProperty('--sheet-h', `${h}px`);
       document.body.classList.toggle('sheet-on', h > 0);
       if (!stageHidden()) view.setInset({ right: 0, bottom: h });
-      return;
+      return false;
     }
     document.body.style.removeProperty('--sheet-h');
     document.body.classList.remove('sheet-on');
     const overlay = getComputedStyle(d).position === 'absolute' && !d.hidden;
-    view.setInset(overlay ? d.offsetWidth + 24 : 0);
+    return view.setInset(overlay ? d.offsetWidth + 24 : 0);
   };
   window.matchMedia('(max-width:1279px)').addEventListener('change', syncInset);
   new ResizeObserver(syncInset).observe($('details'));
@@ -374,7 +261,7 @@ function main() {
   }).observe(stage);
   window.addEventListener('resize', () => {
     if (stageVisible && applyOrientation()) syncInset();
-    legend.update(store.state, effectiveLayout(), fun);
+    legend.update(store.state, stageHidden() ? effectiveLayout() : orientation, fun);
   });
 
   const notice = $('notice');
@@ -388,12 +275,13 @@ function main() {
     }
     const live = !stageHidden();
     const reoriented = live && applyOrientation();
-    if (themed.changed && live && !reoriented) view.setDecor(fun, true, state);
-    else if (live && !reoriented) view.update(state);
+    if (live && reoriented) view.update(state);
+    else if (themed.changed && live) view.setDecor(fun, true, state);
+    else if (live) view.update(state);
     details.update(state);
     focusView.update(state);
     syncInset();
-    legend.update(state, effectiveLayout(), fun);
+    legend.update(state, stageHidden() ? effectiveLayout() : orientation, fun);
     $('m-legend').classList.toggle('modified', legend.isModified());
     if (state.notFound) {
       const f = state.filters;
@@ -408,12 +296,6 @@ function main() {
       lastSelected = state.selected;
     }
   });
-
-  // A direct load with a selection computes the grid before the details panel docks: relayout once so the hash gives the same picture as a click.
-  if (store.state.selected && orientation === 'vertical' && !stageHidden()) {
-    syncInset();
-    view.relayout();
-  }
 
   // Debug hook for the browser console and manual checks; the app itself never reads it.
   window.bdg = { graph, store, view };
