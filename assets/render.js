@@ -1,5 +1,5 @@
 // Hand-written SVG renderer: builds the DOM once, then only toggles classes and attributes.
-import { relationMap, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
+import { relationMap, relationGroups, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
 import { h, stdClass, stdLabel, REL_OPTION, BADGES, enabledKinds } from './dom.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -41,7 +41,7 @@ export function badgeGeom(r, angle) {
  * @returns {{onSelect: ((id: string|null) => void)|null, update: (state: object) => void, relayout: () => void,
  *            setLayout: (layout: Map<string, {x: number, y: number}>, orientation: 'horizontal'|'vertical') => void,
  *            setInset: (v: number|{right?: number, bottom?: number}) => void, fit: (animate?: boolean) => void,
- *            focus: (id: string) => void, settle: () => void, stats: () => object}}
+ *            focus: (id: string) => void, focusSet: (ids: string[]) => void, refocus: () => void, settle: () => void, stats: () => object}}
  *   The view API. Assign `onSelect` to receive node clicks (`null` when the background is clicked).
  */
 export function createGraphView(svg, graph, layout, importance, orientation = 'horizontal') {
@@ -137,9 +137,13 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
 
   let inset = 0;
   let insetBottom = 0;
+  // Left strip covered by the zoom/view button column, and that column's box in svg px (labels avoid it).
+  let leftInset = 0;
+  let ctrlBox = null;
+  /** Usable framing area: `l` px reserved on the left, `w` x `h` usable after it (right/bottom insets already removed). */
   function size() {
     const r = svg.getBoundingClientRect();
-    return { w: Math.max(1, (r.width || 1) - inset), h: Math.max(1, (r.height || 1) - insetBottom) };
+    return { l: leftInset, w: Math.max(1, (r.width || 1) - inset - leftInset), h: Math.max(1, (r.height || 1) - insetBottom) };
   }
 
   function applyCamera() {
@@ -190,7 +194,8 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   let selId = null;
   const stats = { labelsShown: 0, labelsTotal: 0, minRadius: 0 };
   function placeLabels() {
-    const { w, h } = size();
+    const { w: uw, h, l } = size();
+    const w = uw + l;
     stats.labelsShown = 0;
     stats.labelsTotal = 0;
     stats.minRadius = Infinity;
@@ -223,7 +228,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     const imp = nd => importance.get(nd.id);
     cand.sort((a, b) => prio(b) - prio(a) || imp(b) - imp(a) || (a.id < b.id ? -1 : 1));
     const lh = LABEL_PX + 3;
-    const labelBoxes = [];
+    const labelBoxes = ctrlBox ? [ctrlBox] : [];
     for (const nd of nodes.values()) nd.labelOn = false;
     if (labelsOn) {
       for (const nd of cand) {
@@ -270,9 +275,9 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   }
 
   function computeFit() {
-    const { w, h } = size();
+    const { l, w, h } = size();
     fitK = Math.min(w / bounds.w, h / bounds.h);
-    return { k: fitK, x: (w - bounds.w * fitK) / 2 - bounds.x * fitK, y: (h - bounds.h * fitK) / 2 - bounds.y * fitK };
+    return { k: fitK, x: l + (w - bounds.w * fitK) / 2 - bounds.x * fitK, y: (h - bounds.h * fitK) / 2 - bounds.y * fitK };
   }
 
   function clampK(v) {
@@ -311,18 +316,22 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   }
 
   function fit(animate = false) {
+    viewMode = null;
     const f = computeFit();
     interacted = false;
     if (animate) animateTo(f);
     else { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
   }
 
-  function focus(id) {
-    const p = pos.get(id);
-    if (!p) return;
+  /**
+   * Animate the camera to frame the given module ids inside the usable area (insets and the button column excluded),
+   * with 70 px of padding, zoom capped at 2.5 and never below the overview fit. Unknown ids are ignored.
+   */
+  function focusSet(list) {
+    const ids = list.filter(n => pos.has(n));
+    if (!ids.length) return;
     computeFit();
     interacted = true;
-    const ids = [id, ...graph.out.get(id).lib, ...graph.in.get(id).lib];
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of ids) {
       const q = pos.get(n);
@@ -330,11 +339,58 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
       y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y);
     }
     const pad = 70;
-    const { w, h } = size();
+    const { l, w, h } = size();
     const bw = x1 - x0 + 2 * pad;
     const bh = y1 - y0 + 2 * pad;
     const nk = Math.max(fitK, Math.min(2.5, w / bw, h / bh));
-    animateTo({ k: nk, x: w / 2 - ((x0 + x1) / 2) * nk, y: h / 2 - ((y0 + y1) / 2) * nk });
+    animateTo({ k: nk, x: l + w / 2 - ((x0 + x1) / 2) * nk, y: h / 2 - ((y0 + y1) / 2) * nk });
+  }
+
+  // The framing the user last asked for ('around' | 'deps' | 'dependants'); null after fit. Re-run when the usable area changes.
+  let viewMode = null;
+
+  /**
+   * Ids of the visible, highlighted modules for a view mode, always including the selection.
+   * 'deps' = dependency relations (dep, tdep, test/example needs); 'dependants' = dependant relations; each only when its option is on.
+   */
+  const VIEW_RELS = {
+    deps: ['dep', 'tdep', 'testdep', 'exampledep'],
+    dependants: ['rdep', 'trdep', 'testrdep', 'examplerdep'],
+  };
+  // Visible set computed by the last update() (includes the selection).
+  let lastVisible = null;
+  function viewIds(mode, onlyVisible = true, allOptions = false) {
+    if (!selId) return [];
+    if (mode === 'around') return [selId, ...graph.out.get(selId).lib, ...graph.in.get(selId).lib];
+    const o = lastState.options;
+    const groups = relationGroups(graph, selId, allOptions ? { tests: false, examples: false } : { tests: o.tests, examples: o.examples });
+    const ids = [selId];
+    for (const rel of VIEW_RELS[mode]) {
+      if (!allOptions && !o[REL_OPTION[rel]]) continue;
+      for (const id of groups[rel]) if (!onlyVisible || lastVisible.has(id)) ids.push(id);
+    }
+    return ids;
+  }
+
+  /** Frame a view mode for the selection and remember it. */
+  function showView(mode) {
+    if (!selId || !lastState) return;
+    const ids = viewIds(mode);
+    if (ids.length < 2 && mode !== 'around') return;
+    viewMode = mode;
+    focusSet(ids);
+  }
+
+  /** Re-run the remembered framing (Around by default); used when the usable area changes. */
+  function refocus() {
+    if (selId) showView(viewMode ?? 'around');
+  }
+
+  /** Selection plus its direct library dependencies and dependants. */
+  function focus(id) {
+    if (!pos.has(id)) return;
+    selId = id;
+    showView('around');
   }
 
   // ---- input ----
@@ -459,7 +515,10 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     });
     if (sel) visible.add(sel);
     const relOf = id => (relMap ? relMap.get(id) : null);
+    if (sel !== selId) viewMode = null;
     selId = sel;
+    lastVisible = visible;
+    paintViewButtons();
     labelsOn = o.labels;
 
     svg.classList.toggle('has-sel', Boolean(sel));
@@ -573,6 +632,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   }
 
   new ResizeObserver(() => {
+    layoutControls();
     const { w, h } = size();
     if (w < 2 || h < 2) return;
     const f = computeFit();
@@ -580,10 +640,71 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     else fitK = f.k;
   }).observe(svg);
 
-  const zoomBy = f => { const { w, h } = size(); interacted = true; stopTween(); zoomAt(w / 2, h / 2, f); };
+  const zoomBy = f => { const { l, w, h } = size(); interacted = true; stopTween(); zoomAt(l + w / 2, h / 2, f); };
   host.querySelector('#zoom-in')?.addEventListener('click', () => zoomBy(1.4));
   host.querySelector('#zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.4));
   host.querySelector('#zoom-fit')?.addEventListener('click', () => { interacted = false; fit(true); });
+
+  const viewBtns = {
+    around: host.querySelector('#view-around'),
+    deps: host.querySelector('#view-deps'),
+    dependants: host.querySelector('#view-dependants'),
+  };
+  const ARROWS = {
+    deps: { horizontal: 'M13 9H5M8 6L5 9L8 12', vertical: 'M9 5V13M6 10L9 13L12 10' },
+    dependants: { horizontal: 'M5 9H13M10 6L13 9L10 12', vertical: 'M9 13V5M6 8L9 5L12 8' },
+  };
+  function paintViewIcons() {
+    const o = vertical ? 'vertical' : 'horizontal';
+    const svgOf = inner => `<svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+    if (viewBtns.around) viewBtns.around.innerHTML = svgOf('<circle cx="9" cy="9" r="5.5"/><circle cx="9" cy="9" r="1.4" fill="currentColor" stroke="none"/>');
+    for (const key of ['deps', 'dependants']) {
+      if (viewBtns[key]) viewBtns[key].innerHTML = svgOf(`<circle cx="9" cy="9" r="7.5" opacity="0.55"/><path d="${ARROWS[key][o]}"/>`);
+    }
+  }
+  function paintViewButtons() {
+    const name = selId ? graph.modules.get(selId)?.name || selId : '';
+    const empty = { deps: !selId, dependants: !selId };
+    const text = {
+      around: selId ? `Around ${name}` : 'Around the selected library',
+      deps: 'Dependencies of the selected library',
+      dependants: 'Dependents of the selected library',
+    };
+    if (selId) {
+      const noun = { deps: 'dependencies', dependants: 'dependents' };
+      for (const key of ['deps', 'dependants']) {
+        empty[key] = viewIds(key).length < 2;
+        text[key] = !empty[key] ? `${name}'s ${noun[key]}`
+          : viewIds(key, false, true).length > 1 ? `No visible ${noun[key]} of ${name}` : `${name} has no ${noun[key]}`;
+      }
+      if (empty[viewMode]) viewMode = null;
+    }
+    const off = { around: !selId, ...empty };
+    for (const [key, btn] of Object.entries(viewBtns)) {
+      if (!btn) continue;
+      if (off[key] && document.activeElement === btn) host.querySelector('#zoom-fit')?.focus();
+      btn.disabled = off[key];
+      btn.title = text[key];
+      btn.setAttribute('aria-label', text[key]);
+    }
+  }
+  viewBtns.around?.addEventListener('click', () => showView('around'));
+  viewBtns.deps?.addEventListener('click', () => showView('deps'));
+  viewBtns.dependants?.addEventListener('click', () => showView('dependants'));
+  paintViewIcons();
+
+  const controls = host.querySelector('.zoom-controls');
+  /** Measure the button column: reserve its width on the left, keep labels off it, and use two columns when it would not fit above the sheet. */
+  function layoutControls() {
+    if (!controls) return;
+    const r = svg.getBoundingClientRect();
+    if (!r.height) return;
+    controls.classList.remove('two-col');
+    if (controls.getBoundingClientRect().height > r.height - insetBottom - 24) controls.classList.add('two-col');
+    const c = controls.getBoundingClientRect();
+    leftInset = Math.max(0, c.right - r.left + 8);
+    ctrlBox = [c.left - r.left - 4, c.top - r.top - 4, c.right - r.left + 4, c.bottom - r.top + 4];
+  }
 
   function relayout() {
     computeGrid();
@@ -594,8 +715,9 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     }
     for (const e of bgEdges) e.path.setAttribute('d', pathD(e.from, e.to));
     if (lastState) update(lastState);
+    layoutControls();
     const f = computeFit();
-    if (selId) focus(selId);
+    if (selId) refocus();
     else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
   }
 
@@ -609,8 +731,9 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
     if (right === inset && bottom === insetBottom) return;
     inset = right;
     insetBottom = bottom;
+    layoutControls();
     const f = computeFit();
-    if (selId) focus(selId);
+    if (selId) refocus();
     else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
     else applyCamera();
   }
@@ -619,11 +742,13 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   function setLayout(next, nextOrientation) {
     layout = next;
     vertical = nextOrientation === 'vertical';
+    paintViewIcons();
     stopTween();
     interacted = false;
     relayout();
   }
 
+  layoutControls();
   fit();
   api.relayout = relayout;
   api.setLayout = setLayout;
@@ -634,5 +759,7 @@ export function createGraphView(svg, graph, layout, importance, orientation = 'h
   api.update = update;
   api.fit = fit;
   api.focus = focus;
+  api.focusSet = focusSet;
+  api.refocus = refocus;
   return api;
 }

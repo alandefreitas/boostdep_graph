@@ -159,7 +159,7 @@ function main() {
     onToggleHidden: () => {
       if (mq.matches) return;
       syncInset();
-      if (store.state.selected) view.focus(store.state.selected);
+      if (store.state.selected) view.refocus();
     },
   });
 

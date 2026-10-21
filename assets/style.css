@@ -148,6 +148,10 @@ code { font-family: var(--mono); }
   line-height: 1;
 }
 .icon-btn:hover { background: var(--card-2); }
+.zoom-controls.two-col { display: grid; grid-auto-flow: column; grid-template-rows: repeat(3, auto); }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+.icon-btn:disabled:hover { background: var(--card); }
+.icon-btn svg { display: block; }
 :focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 
 /* layout */

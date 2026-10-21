@@ -46,8 +46,11 @@
     <div id="notice" class="notice" role="status" hidden></div>
     <svg id="graph" class="graph" role="img" aria-label="Boost library dependency graph"></svg>
     <div class="zoom-controls">
-      <button type="button" id="zoom-in" class="icon-btn" aria-label="Zoom in">+</button>
-      <button type="button" id="zoom-out" class="icon-btn" aria-label="Zoom out">&minus;</button>
+      <button type="button" id="zoom-in" class="icon-btn" aria-label="Zoom in" title="Zoom in">+</button>
+      <button type="button" id="zoom-out" class="icon-btn" aria-label="Zoom out" title="Zoom out">&minus;</button>
+      <button type="button" id="view-around" class="icon-btn" aria-label="Around the selected library" disabled></button>
+      <button type="button" id="view-deps" class="icon-btn" aria-label="Dependencies of the selected library" disabled></button>
+      <button type="button" id="view-dependants" class="icon-btn" aria-label="Dependents of the selected library" disabled></button>
       <button type="button" id="zoom-fit" class="icon-btn" aria-label="Fit graph to view" title="Fit">&#9635;</button>
     </div>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
