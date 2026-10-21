@@ -11,7 +11,7 @@ on:
       - main
     paths-ignore:
       - 'libs/**'
-      - 'index.html'
+      - 'data.js'
 
   pull_request:
     branches:
@@ -20,7 +20,7 @@ on:
       - main
     paths-ignore:
       - 'libs/**'
-      - 'index.html'
+      - 'data.js'
 
 concurrency:
   group: ${{format('{0}:{1}', github.repository, github.ref)}}
@@ -44,14 +44,21 @@ jobs:
         with:
           python-version: '3.10'
 
-      - run: pip install -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s tests
+          node --test tests/*.test.mjs
 
       - name: Boost Clone
         uses: ./.github/actions/boost_clone
         with:
           boost_dir: boost
           branch: develop
-          patches: https://github.com/CppAlliance/buffers.git,https://github.com/CppAlliance/http_proto.git,https://github.com/CppAlliance/http_io.git,https://github.com/boostorg/redis.git,https://github.com/klemens-morgenstern/asem
+          patches: https://github.com/cppalliance/capy.git,https://github.com/cppalliance/corosio.git,https://github.com/cppalliance/http.git,https://github.com/cppalliance/websocket.git,https://github.com/cppalliance/beast2.git
 
       - name: Build Boostdep
         working-directory: boost
@@ -65,64 +72,27 @@ jobs:
       - name: Symlink tools
         working-directory: boost
         run: |
-          for tool in "tools"/*/; do   tool_name=$(basename ${tool}); ln -sf "tools/${tool_name}" "libs/${tool_name}"; done
+          for tool in "tools"/*/; do   tool_name=$(basename ${tool}); ln -sfn "../tools/${tool_name}" "libs/${tool_name}"; done
 
-      - name: Report corpus
-        uses: actions/cache@v4
-        id: report-corpus
-        with:
-          path: report.txt
-          key: corpus-${{ github.run_id }}
-          enableCrossOsArchive: true
-          restore-keys: |
-            corpus-
-
-      - name: Generate report
-        id: generate-report
+      - name: Generate data
         run: |
-          set -x
-          boostdep_executable=./boost/dist/bin/boostdep
-          $boostdep_executable --boost-root ./boost --module-levels > report2.txt
-          if [ -f report.txt ]; then
-            if diff -q report.txt report2.txt > /dev/null 2>&1; then
-              echo "No changes in report"
-              cat report2.txt
-              echo "report-changed=false" >> $GITHUB_OUTPUT
-            else
-              echo "Changes in report"
-              set +e
-              diff report.txt report2.txt
-              set -e
-              echo "report-changed=true" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "No previous report found"
-            cat report2.txt
-            echo "report-changed=true" >> $GITHUB_OUTPUT
-          fi          
-          mv report2.txt report.txt
-
-      - name: Generate visual report
-        if: steps.generate-report.outputs.report-changed == 'true'
-        run: |
-          python main.py -v --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output report
+          python main.py -v --boost-root ./boost --boostdep ./boost/dist/bin/boostdep --output-dir .
 
       - name: Identify auto-commit
-        if: startswith(github.event.commits[0].message, 'Update Pages') && steps.generate-report.outputs.report-changed == 'true'
+        if: startswith(github.event.commits[0].message, 'Update Pages')
         run: echo "is-auto-commit=true" >> $GITHUB_ENV
 
       - name: Commit
-        if: env.is-auto-commit != true && steps.generate-report.outputs.report-changed == 'true'
+        if: github.event_name != 'pull_request' && env.is-auto-commit != 'true'
         run: |
+          if [ -z "$(git status --porcelain data.js libs)" ]; then
+            exit 0
+          fi
           cur_date=$(date +"%d %B, %Y")
           git_author=$(git log -n 1 --format='%an')
           git_email=$(git log -n 1 --format='%ae')
           git config --global user.name "$git_author"
           git config --global user.email "$git_email"
-          git add index.html libs
-          git commit -a -m "Update Pages ($cur_date)"
+          git add data.js libs
+          git commit -m "Update Pages ($cur_date)"
           git push
-          
-  
-
-

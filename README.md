@@ -2,93 +2,52 @@
 
 ![](banner.png)
 
-This is a small application that generates a visual representation of the internal Boost dependencies.
+An interactive single page that shows how the Boost libraries depend on each other: https://alandefreitas.github.io/boostdep_graph/
 
-The complete report is available on https://alandefreitas.github.io/boostdep_graph/
+Click a library (or search for it) to see what it needs and what needs it. The legend on the page doubles as the control panel: every color, border, marker and edge style is explained there, and each row has a switch to show or hide it. Test and example dependencies are off by default and can be included with two switches.
 
-## Quickstart
+## Links and URL hash
 
-Clone the boost super-project:
+The page state lives in the URL hash, so views can be shared:
+
+- `#url`: open focused on the `url` library
+- `#url&tests=1&examples=1`: also show test and example dependencies
+- `#url&labels=0`: only options that differ from the default are stored (`key=0` or `key=1`)
+- `#&cat=IO,Math&std=11,14`: filter by category and C++ standard
+
+Old per-library links such as `libs/url.html` redirect to `#url`.
+
+## Generating the data locally
+
+Clone the Boost super-project and build `boostdep`:
 
 ```bash
 git clone https://github.com/boostorg/boost.git -b develop boost
 cd boost
 git submodule update --init --recursive
+./bootstrap.sh
+./b2 tools/boostdep/build
+cd ..
 ```
 
-If you don't have `b2`, execute
+Generate `data.js` (and the `libs/*.html` redirect stubs), then serve the page:
 
 ```bash
-.\bootstrap
+python3 main.py --boost-root boost --boostdep boost/dist/bin/boostdep --output-dir .
+python3 -m http.server 8000
 ```
 
-Install boostdep:
+Open http://localhost:8000/. `main.py` uses only the Python standard library; the page has no runtime dependencies and no build step. The generator leaves `data.js` untouched when only the date stamp would change.
+
+## Updating the site
+
+A nightly GitHub Actions job (`.github/workflows/ci.yml`) clones Boost `develop` plus the proposed libraries (capy, corosio, http, websocket, beast2), runs the tests, regenerates `data.js` and `libs/`, and commits them only if something changed. GitHub Pages serves the repository as static files.
+
+## Tests
 
 ```bash
-b2 tools/boostdep/build
+python3 -m unittest discover -s tests
+node --test tests/*.test.mjs
 ```
 
-Generate the graph:
-
-```bash
-python main.py --boost-root /path/to/boost --boostdep boostdep
-```
-
-## Output format
-
-By default, the application will generate the dependency overview. You can save your results to an html file instead
-with the `--output html` option.
-
-```bash
-python main.py --boost-root /path/to/boost --boostdep boostdep --output html
-```
-
-To highlight the dependencies for a list of libraries, use the `--libs` option:
-
-```bash
-python main.py --boost-root /path/to/boost --boostdep boostdep --libs url
-```
-
-The `report` output format will generate the overview, one page for each library, and create links:
-
-```bash
-python main.py --boost-root /path/to/boost --boostdep boostdep --output report
-```
-
-## Interpreting the graph
-
-Many aspect of the library are represented in the network graph:
-
-- Axes
-    - The x-axis represents the dependency level of each library
-    - The y-axis represents the number of libraries at each level
-- Vertices
-    - The vertex size is proportional to how many other modules depend on it
-    - The vertex colors represent the minimum C++ standard supported by a library
-    - The vertex symbol:
-        - Circle: default
-        - Diamond: there are partial alternatives to this library in the C++ standard library
-            - Note that almost no library can be completely replaced by its `std` counterpart
-        - Pentagon: patched modules / proposals
-    - Vertex border:
-        - Orange: direct dependencies
-        - Light orange: transitive dependencies
-        - Blue: direct reverse dependencies
-        - Light blue: transitive reverse dependencies
-        - Dark green: modules in the same category
-- Edge colors:
-    - Orange: direct dependencies
-    - Light orange: transitive dependencies
-    - Blue: direct reverse dependencies
-    - Light blue: transitive reverse dependencies
-- Hover text includes:
-    - Module name
-    - Min. C++ standard supported
-    - Authors
-    - Abstract
-    - Dependencies
-    - Transitive dependency paths
-    - Categories
-
-The information about libraries comes from the metadata provided by each library in `meta/libraries.json`. For the min.
-C++ standard supported, if no metadata is provided, the highest standard between direct dependencies is considered.
+The information about libraries comes from each library's `meta/libraries.json`. When no minimum C++ standard is given, the highest standard among its direct dependencies is used.

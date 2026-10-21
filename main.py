@@ -3,16 +3,19 @@
 
 Runs boostdep (and the depinst.py scanner shipped with it) against a Boost
 checkout and writes ``data.js``: the modules, their metadata and the
-library / test / example dependency edges.  Standard library only.
+library / test / example dependency edges, plus libs/<module>.html redirect
+stubs that keep old per-library links working.  Standard library only.
 """
 
 import argparse
+import html
 import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import urllib.parse
 from datetime import date
 
 CXXSTD_ORDER = ['98', '03', '11', '14', '17', '20', '23']
@@ -444,13 +447,54 @@ def write_data_js(path, data):
     return True
 
 
+STUB_TEMPLATE = (
+    '<!doctype html>\n'
+    '<meta charset="utf-8">\n'
+    '<title>{id} - Boost dependency explorer</title>\n'
+    '<link rel="canonical" href="../#{id}">\n'
+    '<meta http-equiv="refresh" content="0; url=../#{id}">\n'
+    '<script>var h=location.hash.slice(1);'
+    'location.replace("../#"+{idjs}+(h?"&"+h:""))</script>\n'
+    '<p>Moved to <a href="../#{id}">the dependency explorer</a>.</p>\n'
+)
+
+
+def render_redirect_stub(module_id):
+    fragment = urllib.parse.quote(module_id, safe='~')
+    return STUB_TEMPLATE.format(id=html.escape(fragment, quote=True),
+                                idjs=json.dumps(fragment).replace('<', '\\u003c'))
+
+
+def write_redirect_stubs(output_dir, module_ids):
+    """Write libs/<id>.html redirect stubs for the union of module_ids and
+    the basenames of existing libs/*.html (old pages are kept as stubs so
+    external links keep working). Returns the number of files written."""
+    libs = os.path.join(output_dir, 'libs')
+    ids = set(module_ids)
+    if os.path.isdir(libs):
+        ids.update(f[:-5] for f in os.listdir(libs) if f.endswith('.html'))
+    os.makedirs(libs, exist_ok=True)
+    written = 0
+    for module_id in sorted(ids):
+        path = os.path.join(libs, module_id + '.html')
+        text = render_redirect_stub(module_id)
+        if os.path.isfile(path):
+            with open(path, encoding='utf-8', newline='') as f:
+                if f.read() == text:
+                    continue
+        with open(path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(text)
+        written += 1
+    return written
+
+
 def main(argv=None):
     global verbose
     parser = argparse.ArgumentParser(
         description='Generate data.js for the Boost dependency explorer.')
     parser.add_argument('--boost-root', default='.', help='the Boost checkout directory')
     parser.add_argument('--boostdep', default='boostdep', help='path to the boostdep executable')
-    parser.add_argument('--output-dir', default='.', help='directory that receives data.js')
+    parser.add_argument('--output-dir', default='.', help='directory that receives data.js and the libs/*.html redirect stubs')
     parser.add_argument('-v', '--verbose', action='count', default=0, help='more output')
     parser.add_argument('-q', '--quiet', action='count', default=0, help='less output (opposite of -v)')
     args = parser.parse_args(argv)
@@ -459,6 +503,7 @@ def main(argv=None):
     try:
         data = collect_data(os.path.abspath(args.boost_root), args.boostdep)
         written = write_data_js(os.path.join(args.output_dir, 'data.js'), data)
+        stubs = write_redirect_stubs(args.output_dir, [m['id'] for m in data['modules']])
     except GeneratorError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -466,7 +511,8 @@ def main(argv=None):
     kinds = {k: sum(1 for e in data['edges'] if e['kind'] == k) for k in ('lib', 'test', 'example')}
     if verbose >= 0:
         print(f'{len(data["modules"])} modules, edges: lib {kinds["lib"]}, test {kinds["test"]}, '
-              f'example {kinds["example"]}; data.js {"written" if written else "unchanged"}')
+              f'example {kinds["example"]}; data.js {"written" if written else "unchanged"}; '
+              f'{stubs} redirect stubs written')
     return 0
 
 

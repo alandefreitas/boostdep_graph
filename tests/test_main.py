@@ -372,7 +372,8 @@ class EndToEndTests(unittest.TestCase):
     def test_generates_then_reports_unchanged(self):
         code, out = self.run_main()
         self.assertEqual(code, 0)
-        self.assertIn('written', out)
+        self.assertIn('data.js written', out)
+        self.assertTrue(os.path.isfile(os.path.join(self.out, 'libs', 'url.html')))
         with open(os.path.join(self.out, 'data.js'), encoding='utf-8') as f:
             data = main.parse_data_js(f.read())
         self.assertEqual(data['stamp']['boostDate'], '2025-05-06')
@@ -386,7 +387,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertNotIn({'from': 'url', 'to': 'url', 'kind': 'test'}, data['edges'])
         code, out = self.run_main()
         self.assertEqual(code, 0)
-        self.assertIn('unchanged', out)
+        self.assertIn('data.js unchanged', out)
 
     def test_missing_boostdep_fails_loudly(self):
         self.boostdep = os.path.join(self.tmp.name, 'nope')
@@ -395,6 +396,37 @@ class EndToEndTests(unittest.TestCase):
             code, _ = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn('boostdep not found', err.getvalue())
+
+
+class RedirectStubTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def read(self, name):
+        with open(os.path.join(self.tmp.name, 'libs', name), encoding='utf-8') as f:
+            return f.read()
+
+    def test_stub_content_and_size(self):
+        main.write_redirect_stubs(self.tmp.name, ['url', 'numeric~conversion'])
+        text = self.read('url.html')
+        self.assertLess(len(text.encode()), 1000)
+        self.assertIn('<meta http-equiv="refresh" content="0; url=../#url">', text)
+        self.assertIn('<link rel="canonical" href="../#url">', text)
+        self.assertIn('<a href="../#url">', text)
+        self.assertIn('location.replace("../#"+"url"', text)
+        self.assertIn('../#numeric~conversion', self.read('numeric~conversion.html'))
+
+    def test_keeps_old_pages_as_stubs_and_is_idempotent(self):
+        write(os.path.join(self.tmp.name, 'libs', 'asem.html'), 'x' * 5000)
+        self.assertEqual(main.write_redirect_stubs(self.tmp.name, ['url']), 2)
+        self.assertIn('../#asem', self.read('asem.html'))
+        self.assertEqual(main.write_redirect_stubs(self.tmp.name, ['url']), 0)
+
+    def test_id_is_escaped(self):
+        text = main.render_redirect_stub('a"<b')
+        self.assertIn('a%22%3Cb', text)
+        self.assertNotIn('<b', text)
 
 
 if __name__ == '__main__':
