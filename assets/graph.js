@@ -1,4 +1,4 @@
-// Pure graph logic for the Boost dependency explorer. No DOM, no globals.
+// Pure graph logic for the Boost Dependency Graph. No DOM, no globals.
 // All functions take the graph built by buildGraph(); the graph is treated as immutable.
 
 /** Edge kinds in data.js. */
@@ -21,6 +21,20 @@ export function compareStd(a, b) {
   return rank(a) - rank(b);
 }
 
+/**
+ * Expand a C++ standard filter so 98 and 03 behave as one chip: a set holding
+ * either one matches both. null stays null (no filter).
+ * @param {Iterable<string>|null} set
+ * @returns {Set<string>|null}
+ */
+export function expandStd(set) {
+  if (!set) return null;
+  const res = new Set([...set].map(String));
+  if (res.has('03')) res.add('98');
+  if (res.has('98')) res.add('03');
+  return res;
+}
+
 function cmp(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -34,7 +48,7 @@ function edgeSets() {
 function cacheOf(g) {
   let c = caches.get(g);
   if (!c) {
-    c = { deps: new Map(), rdeps: new Map(), rel: null };
+    c = { deps: new Map(), rdeps: new Map(), rank: null };
     caches.set(g, c);
   }
   return c;
@@ -44,9 +58,9 @@ function cacheOf(g) {
  * Build the graph structure from the data.js payload.
  * Every module appears in both `out` and `in`, even without edges.
  * Throws if an edge references an unknown module or kind.
- * @param {{modules: object[], edges: {from: string, to: string, kind: string}[]}} data
  * Also precomputes `cats` (id -> lowercased category set) and `outSorted` /
  * `inSorted` (id -> sorted lib neighbour ids) for the lookups below.
+ * @param {{modules: object[], edges: {from: string, to: string, kind: string}[]}} data
  * @returns {{modules: Map<string, object>, out: Map<string, Record<string, Set<string>>>,
  *            in: Map<string, Record<string, Set<string>>>, order: string[],
  *            cats: Map<string, Set<string>>, outSorted: Map<string, string[]>,
@@ -195,16 +209,49 @@ export function relations(g, selected, opts) {
   return res;
 }
 
+const RELATION_KEYS = ['dep', 'tdep', 'rdep', 'trdep', 'testdep', 'exampledep', 'testrdep', 'examplerdep', 'category'];
+
+function ranked(g, selected, opts) {
+  const c = cacheOf(g);
+  const key = `${selected}|${opts?.tests ? 1 : 0}|${opts?.examples ? 1 : 0}`;
+  if (!c.rank || c.rank.key !== key) {
+    const map = relations(g, selected, opts);
+    const groups = Object.fromEntries(RELATION_KEYS.map(k => [k, []]));
+    for (const id of g.order) {
+      const r = map.get(id);
+      if (r && r in groups) groups[r].push(id);
+    }
+    for (const k of RELATION_KEYS) Object.freeze(groups[k]);
+    c.rank = { key, map, groups: Object.freeze(groups) };
+  }
+  return c.rank;
+}
+
 /**
  * Relation of `id` to `selected` (see relations()). Uses a one-entry cache so
  * repeated calls for the same selection and options are cheap.
  * @returns {string|null}
  */
 export function relation(g, selected, id, opts) {
-  const c = cacheOf(g);
-  const key = `${selected}|${opts?.tests ? 1 : 0}|${opts?.examples ? 1 : 0}`;
-  if (!c.rel || c.rel.key !== key) c.rel = { key, map: relations(g, selected, opts) };
-  return c.rel.map.has(id) ? c.rel.map.get(id) : null;
+  const map = ranked(g, selected, opts).map;
+  return map.has(id) ? map.get(id) : null;
+}
+
+/**
+ * The single source of truth for "which libraries stand in which relation to
+ * the selection": relations() grouped by relation, so every view shows the same
+ * membership. Keys: dep, tdep, rdep, trdep, testdep, exampledep, testrdep,
+ * examplerdep, category (each module appears in at most one; 'self' is omitted).
+ * Arrays hold module ids in id order, are frozen and cached, so treat them as
+ * read-only. testdep/exampledep include direct and transitive needs; views that
+ * split them use extraNeeds(...).direct.
+ * @param {object} g
+ * @param {string} selected
+ * @param {{tests?: boolean, examples?: boolean}} [opts]
+ * @returns {Record<string, readonly string[]>}
+ */
+export function relationGroups(g, selected, opts) {
+  return ranked(g, selected, opts).groups;
 }
 
 function bfsPath(g, from, to, sorted) {
@@ -253,14 +300,15 @@ export function dependantPath(g, from, to) {
 /**
  * Ids passing the filters. null = no filter. A module with no categories passes
  * the categories filter only when it is null or contains the sentinel ''.
- * Category comparison is case-insensitive.
+ * Category comparison is case-insensitive; the standards 98 and 03 are one chip
+ * (see expandStd).
  * @param {object} g
  * @param {{categories?: Iterable<string>|null, cxxstd?: Iterable<string>|null}} [filters]
  * @returns {Set<string>}
  */
 export function visibleModules(g, { categories = null, cxxstd = null } = {}) {
   const cats = categories ? new Set([...categories].map(c => c.toLowerCase())) : null;
-  const stds = cxxstd ? new Set([...cxxstd].map(String)) : null;
+  const stds = expandStd(cxxstd);
   const res = new Set();
   for (const id of g.order) {
     const m = g.modules.get(id);

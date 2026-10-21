@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildGraph, depsClosure, dependantsClosure, extraNeeds, extraDependants, relation, relations,
   dependencyPath, dependantPath, visibleModules, layout, importance, maxImportance,
-  cxxstdOrder, compareStd,
+  cxxstdOrder, compareStd, relationGroups, expandStd,
 } from '../assets/graph.js';
 import { data, cyclic } from './fixtures/graph.mjs';
 
@@ -233,4 +233,61 @@ test('cxxstdOrder and compareStd', () => {
   assert.equal(compareStd('11', '11'), 0);
   assert.ok(compareStd('xx', '23') > 0);
   assert.deepEqual(['20', '98', '11'].sort(compareStd), ['98', '11', '20']);
+});
+
+test('relationGroups: lib only, ids in id order, no self', () => {
+  const gr = relationGroups(g, 'mid');
+  assert.deepEqual(gr.dep, ['core']);
+  assert.deepEqual(gr.tdep, ['base']);
+  assert.deepEqual(gr.rdep, ['app']);
+  assert.deepEqual(gr.trdep, ['testtool']);
+  assert.deepEqual(gr.category, []);
+  for (const k of ['testdep', 'exampledep', 'testrdep', 'examplerdep']) assert.deepEqual(gr[k], []);
+  assert.ok(Object.values(gr).every(a => !a.includes('mid')));
+});
+
+test('relationGroups: membership equals relations(), one group per module', () => {
+  for (const opts of [{}, { tests: true }, { examples: true }, { tests: true, examples: true }]) {
+    for (const sel of g.order) {
+      const map = relations(g, sel, opts);
+      const gr = relationGroups(g, sel, opts);
+      const seen = new Map();
+      for (const [k, ids] of Object.entries(gr)) {
+        assert.deepEqual([...ids], [...ids].sort(), `${k} sorted`);
+        for (const id of ids) {
+          assert.ok(!seen.has(id), `${id} in two groups`);
+          seen.set(id, k);
+          assert.equal(map.get(id), k);
+        }
+      }
+      for (const [id, r] of map) if (r && r !== 'self') assert.equal(seen.get(id), r);
+    }
+  }
+});
+
+test('relationGroups: ranked, so a test need that is already a dependant is not a testdep', () => {
+  assert.deepEqual(extraNeeds(g, 'core', 'test').direct.has('testtool'), true);
+  const gr = relationGroups(g, 'core', { tests: true, examples: true });
+  assert.ok(gr.trdep.includes('testtool'));
+  assert.ok(!gr.testdep.includes('testtool'));
+  assert.deepEqual(gr.exampledep, ['extra', 'util']);
+  assert.deepEqual(relationGroups(g, 'leaf', { tests: true }).testdep, ['util']);
+  assert.deepEqual(relationGroups(g, 'util', { tests: true }).testrdep, ['leaf']);
+  assert.deepEqual(relationGroups(g, 'leaf').testdep, []);
+});
+
+test('relationGroups: cached per selection and options, frozen, unknown selection empty', () => {
+  assert.equal(relationGroups(g, 'core', { tests: true }), relationGroups(g, 'core', { tests: true }));
+  assert.notEqual(relationGroups(g, 'core', { tests: true }), relationGroups(g, 'core'));
+  assert.ok(Object.isFrozen(relationGroups(g, 'core').dep));
+  assert.ok(Object.values(relationGroups(g, 'nope')).every(a => a.length === 0));
+});
+
+test('expandStd and visibleModules treat 98 and 03 as one chip', () => {
+  assert.equal(expandStd(null), null);
+  assert.deepEqual(sorted(expandStd(['03'])), ['03', '98']);
+  assert.deepEqual(sorted(expandStd(['98', '11'])), ['03', '11', '98']);
+  assert.deepEqual(sorted(visibleModules(g, { cxxstd: ['03'] })), ['base', 'util']);
+  assert.deepEqual(sorted(visibleModules(g, { cxxstd: ['98'] })), ['base', 'util']);
+  assert.deepEqual(sorted(visibleModules(g, { cxxstd: new Set(['03', '17']) })), ['app', 'base', 'util']);
 });

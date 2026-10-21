@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate data.js for the Boost dependency explorer.
+"""Generate data.js for the Boost Dependency Graph.
 
 Runs boostdep (and the depinst.py scanner shipped with it) against a Boost
 checkout and writes ``data.js``: the modules, their metadata and the
@@ -450,12 +450,12 @@ def write_data_js(path, data):
 STUB_TEMPLATE = (
     '<!doctype html>\n'
     '<meta charset="utf-8">\n'
-    '<title>{id} - Boost dependency explorer</title>\n'
+    '<title>{id} - Boost Dependency Graph</title>\n'
     '<link rel="canonical" href="../#{id}">\n'
     '<meta http-equiv="refresh" content="0; url=../#{id}">\n'
     '<script>var h=location.hash.slice(1);'
     'location.replace("../#"+{idjs}+(h?"&"+h:""))</script>\n'
-    '<p>Moved to <a href="../#{id}">the dependency explorer</a>.</p>\n'
+    '<p>Moved to <a href="../#{id}">the Boost Dependency Graph</a>.</p>\n'
 )
 
 
@@ -491,7 +491,7 @@ def write_redirect_stubs(output_dir, module_ids):
 def main(argv=None):
     global verbose
     parser = argparse.ArgumentParser(
-        description='Generate data.js for the Boost dependency explorer.')
+        description='Generate data.js for the Boost Dependency Graph.')
     parser.add_argument('--boost-root', default='.', help='the Boost checkout directory')
     parser.add_argument('--boostdep', default='boostdep', help='path to the boostdep executable')
     parser.add_argument('--output-dir', default='.', help='directory that receives data.js and the libs/*.html redirect stubs')

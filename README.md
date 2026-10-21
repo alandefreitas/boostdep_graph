@@ -15,6 +15,8 @@ The page state lives in the URL hash, so views can be shared:
 - `#url&labels=0`: only options that differ from the default are stored (`key=0` or `key=1`)
 - `#&cat=IO,Math&std=11,14`: filter by category and C++ standard
 
+Option keys (`=0` or `=1`): `background`, `deps`, `tdeps`, `rdeps`, `trdeps`, `category`, `paths`, `colorStd`, `sizeImportance`, `stdAltMarker`, `buildableMarker`, `toolMarker`, `deprecatedMarker`, `proposedMarker`, `labels` (all on by default), `tests` and `examples` (off by default). `cat=` lists the categories that stay lit, `cat=-` means none, and `cat=` with no name means only libraries without a category. `std=` lists the standards that stay lit (`03` also covers 98).
+
 Old per-library links such as `libs/url.html` redirect to `#url`.
 
 ## Generating the data locally
@@ -30,7 +32,15 @@ git submodule update --init --recursive
 cd ..
 ```
 
-Generate `data.js` (and the `libs/*.html` redirect stubs), then serve the page:
+boostdep only lists Boost tools (`tools/*`) as modules when they are linked into `libs/`. CI creates those symlinks; to get them locally too, run this once. It modifies your Boost checkout (adds symlinks under `boost/libs/`):
+
+```bash
+cd boost
+for tool in tools/*/; do tool_name=$(basename "${tool}"); ln -sfn "../tools/${tool_name}" "libs/${tool_name}"; done
+cd ..
+```
+
+Generate `data.js` (and the `libs/*.html` redirect stubs), then serve the page. Add `-v` for more output or `-q` for less:
 
 ```bash
 python3 main.py --boost-root boost --boostdep boost/dist/bin/boostdep --output-dir .

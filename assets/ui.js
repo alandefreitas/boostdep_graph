@@ -1,10 +1,12 @@
 // Legend as control panel: every row shows a real sample (same SVG symbols and CSS classes as the graph),
 // a plain-words label and a switch. Also category and C++ standard filters, and Reset.
 import { DEFAULT_OPTIONS } from './state.js';
-import { relations, extraNeeds, extraDependants, visibleModules } from './graph.js';
-import { el as s, stdClass, expandStd, diamondGeom, badgeGeom } from './render.js';
+import { relationGroups, visibleModules, expandStd, cxxstdOrder } from './graph.js';
+import { el as s, diamondGeom, badgeGeom } from './render.js';
+import { stdClass } from './dom.js';
 
-const STDS = [['03', 'C++98/03'], ['11', 'C++11'], ['14', 'C++14'], ['17', 'C++17'], ['20', 'C++20'], ['23', 'C++23']];
+// One chip per standard; 98 and 03 share the '03' chip.
+const STDS = cxxstdOrder.filter(k => k !== '98').map(k => [k, k === '03' ? 'C++98/03' : `C++${k}`]);
 const SAMPLE_W = 46;
 const NODE_X = 34;
 
@@ -49,16 +51,19 @@ function customSample(draw) {
  * @param {HTMLElement} root the <aside id="legend">
  * @param {object} graph from buildGraph()
  * @param {(fn: (state: object) => void) => void} onChange mutate state inside fn (store.change)
- * @param {() => void} onLayout called after the panel collapses or expands (the stage size changed)
- * @returns {{update: (state: object) => void}}
+ * @param {{onLayout?: () => void, onClose?: () => void}} [handlers] `onLayout` is called after the panel
+ *   collapses or expands (the stage size changed); `onClose` adds a close button to the header (phone drawer).
+ * @returns {{update: (state: object) => void, isModified: () => boolean}}
  */
-export function createLegend(root, graph, onChange, onLayout = () => {}) {
+export function createLegend(root, graph, onChange, { onLayout = () => {}, onClose = null } = {}) {
   const switches = new Map();
+  let modified = false;
   const counts = new Map();
 
   // ---- generic pieces ----
-  function row({ sampleEl, label, help, option, countKey, extra }) {
+  function row({ sampleEl, label, help, option, countKey, extra, graphOnly = false }) {
     const lab = h('label', 'lg-row');
+    if (graphOnly) lab.classList.add('graph-only');
     lab.appendChild(sampleEl ?? h('span', 'lg-sample'));
     const text = h('span', 'lg-text');
     const top = h('span', 'lg-top');
@@ -107,6 +112,13 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
   reset.type = 'button';
   reset.title = 'Back to the default view (keeps the selected library)';
   head.append(toggle, title, reset);
+  if (onClose) {
+    const close = h('button', 'icon-btn lg-close', '\u00d7');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close legend and options');
+    close.addEventListener('click', onClose);
+    head.appendChild(close);
+  }
   const panel = h('div', 'lg-panel');
   panel.id = 'legend-panel';
   root.append(head, panel);
@@ -149,12 +161,12 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
   for (const [rel, opt, label, help, edge] of RELS) {
     g1.body.appendChild(row({ sampleEl: sample({ cls: `rel-${rel} rel`, edge }), label, help, option: opt, countKey: rel }));
   }
-  g1.body.appendChild(row({ sampleEl: sample({ cls: 'rel-category rel' }), label: 'Same category', help: 'Shares a category with it. Green ring.', option: 'category', countKey: 'category' }));
+  g1.body.appendChild(row({ sampleEl: sample({ cls: 'rel-category rel' }), label: 'Same category', help: 'Shares a category with it. Green ring.', option: 'category', countKey: 'category', graphOnly: true }));
   const pathSample = customSample(svg => {
     const t = s('text', { x: 2, y: 18, class: 'lg-path' }, svg);
     t.textContent = 'a → b → c';
   });
-  g1.body.appendChild(row({ sampleEl: pathSample, label: 'Dependency paths', help: 'Hover a library in the details panel to see how the two connect.', option: 'paths' }));
+  g1.body.appendChild(row({ sampleEl: pathSample, label: 'Dependency paths', help: 'Hover a library in the details panel to see how the two connect.', option: 'paths', graphOnly: true }));
 
   // ---- group: include ----
   const g2 = group('Include (off by default)', 'By default only what users actually pull in is shown.');
@@ -171,11 +183,7 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
   // ---- group: libraries ----
   const g3 = group('Libraries');
   const stdChips = new Map();
-  const stdCount = new Map(STDS.map(([k]) => [k, 0]));
-  for (const m of graph.modules.values()) {
-    const k = stdClass(m.cxxstd).slice(4);
-    if (stdCount.has(k)) stdCount.set(k, stdCount.get(k) + 1);
-  }
+  const stdCount = new Map(STDS.map(([k]) => [k, visibleModules(graph, { cxxstd: [k] }).size]));
   const chipWrap = h('div', 'lg-chips lg-stdchips');
   for (const [key, label] of STDS) {
     const c = h('label', 'lg-chip');
@@ -203,23 +211,32 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
       s('circle', { class: 'shape', r }, g);
     });
   });
-  g3.body.appendChild(row({ sampleEl: sizeSample, label: 'Size = how many libraries depend on it', help: 'Bigger means more widely used.', option: 'sizeImportance' }));
-  g3.body.appendChild(row({ sampleEl: sample({ alt: true, std: 'std-14' }), label: 'Diamond = has a standard alternative', help: 'Part of it now exists in the C++ standard library.', option: 'stdAltMarker' }));
-  g3.body.appendChild(row({ sampleEl: sample({ badge: { sym: 'sym-buildable', angle: -45 }, std: 'std-14' }), label: 'Can be built separately', help: 'Has a compiled part (a library to link).', option: 'buildableMarker' }));
-  g3.body.appendChild(row({ sampleEl: sample({ badge: { sym: 'sym-tool', angle: 45 }, std: 'std-14' }), label: 'Boost tool', help: 'A program for developers, not a library.', option: 'toolMarker' }));
-  g3.body.appendChild(row({ sampleEl: sample({ badge: { sym: 'sym-deprecated', angle: -135 }, std: 'std-14' }), label: 'Deprecated', help: 'Kept for compatibility, scheduled for removal.', option: 'deprecatedMarker' }));
-  g3.body.appendChild(row({ sampleEl: sample({ badge: { sym: 'sym-proposed', angle: 135 }, std: 'std-14' }), label: 'Proposed for Boost', help: 'Under review, not part of a release yet.', option: 'proposedMarker' }));
+  g3.body.appendChild(row({ sampleEl: sizeSample, label: 'Size = how many libraries depend on it', help: 'Bigger means more widely used.', option: 'sizeImportance', graphOnly: true }));
+  // Marker rows only appear when at least one library in the data carries that marker.
+  const anyModule = pred => [...graph.modules.values()].some(pred);
+  const hiddenOptions = new Set();
+  const markerRows = [
+    [m => m.stdAlternatives?.length, { sampleEl: sample({ alt: true, std: 'std-14' }), label: 'Diamond = has a standard alternative', help: 'Part of it now exists in the C++ standard library.', option: 'stdAltMarker' }],
+    [m => m.buildable, { sampleEl: sample({ badge: { sym: 'sym-buildable', angle: -45 }, std: 'std-14' }), label: 'Can be built separately', help: 'Has a compiled part (a library to link).', option: 'buildableMarker' }],
+    [m => m.tool, { sampleEl: sample({ badge: { sym: 'sym-tool', angle: 45 }, std: 'std-14' }), label: 'Boost tool', help: 'A program for developers, not a library.', option: 'toolMarker' }],
+    [m => m.deprecated, { sampleEl: sample({ badge: { sym: 'sym-deprecated', angle: -135 }, std: 'std-14' }), label: 'Deprecated', help: 'Kept for compatibility, scheduled for removal.', option: 'deprecatedMarker' }],
+    [m => m.proposed, { sampleEl: sample({ badge: { sym: 'sym-proposed', angle: 135 }, std: 'std-14' }), label: 'Proposed for Boost', help: 'Under review, not part of a release yet.', option: 'proposedMarker' }],
+  ];
+  for (const [pred, spec] of markerRows) {
+    if (anyModule(pred)) g3.body.appendChild(row({ ...spec, graphOnly: true }));
+    else hiddenOptions.add(spec.option);
+  }
   const nameSample = customSample(svg => {
     const t = s('text', { x: SAMPLE_W / 2, y: 14, class: 'label lg-name', 'text-anchor': 'middle' }, svg);
     t.textContent = 'url';
   });
-  g3.body.appendChild(row({ sampleEl: nameSample, label: 'Names', help: 'Labels next to the libraries.', option: 'labels' }));
+  g3.body.appendChild(row({ sampleEl: nameSample, label: 'Names', help: 'Labels next to the libraries.', option: 'labels', graphOnly: true }));
   const bgSample = customSample(svg => {
     s('path', { class: 'edge lg-bgedge', d: 'M2,22 C16,22 30,6 44,6' }, svg);
     s('path', { class: 'edge lg-bgedge', d: 'M2,6 C16,6 30,22 44,22' }, svg);
     s('path', { class: 'edge lg-bgedge', d: 'M2,14 H44' }, svg);
   });
-  g3.body.appendChild(row({ sampleEl: bgSample, label: 'Background web', help: 'Faint lines for every dependency between libraries.', option: 'background' }));
+  g3.body.appendChild(row({ sampleEl: bgSample, label: 'Background web', help: 'Faint lines for every dependency between libraries.', option: 'background', graphOnly: true }));
 
   // ---- group: categories ----
   const g4 = group('Categories', 'Untick a category to dim its libraries. Dimmed libraries keep their place.');
@@ -284,20 +301,6 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
     });
   }
 
-  // Relations and extra needs depend only on selection and the tests/examples switches, not on filters.
-  let relCache = null;
-  function relationsFor(sel, o) {
-    const key = `${sel}|${o.tests}|${o.examples}`;
-    if (relCache?.key !== key) {
-      const extras = ['test', 'example'].map(kind => {
-        const n = extraNeeds(graph, sel, kind);
-        return [kind, { needs: [...n.direct, ...n.transitive], dependants: [...extraDependants(graph, sel, kind)] }];
-      });
-      relCache = { key, rel: relations(graph, sel, { tests: o.tests, examples: o.examples }), extras };
-    }
-    return relCache;
-  }
-
   // ---- state -> DOM ----
   function update(state) {
     const o = state.options;
@@ -314,11 +317,15 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
     if (sel) {
       const vis = visibleModules(graph, { categories: cats, cxxstd: expStds });
       vis.add(sel);
-      const { rel, extras } = relationsFor(sel, o);
-      for (const [id, r] of rel) if (r in tally && vis.has(id)) tally[r]++;
-      for (const [kind, { needs, dependants }] of extras) {
-        tally[kind] = needs.filter(id => vis.has(id)).length;
-        tally[`${kind}r`] = dependants.filter(id => vis.has(id)).length;
+      const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
+      const count = ids => ids.filter(id => vis.has(id)).length;
+      for (const k of ['dep', 'tdep', 'rdep', 'trdep', 'category']) tally[k] = count(groups[k]);
+      // Preview: these counts show what switching tests/examples on would add.
+      // A switch that is on counts exactly what the views show; one that is off counts as if it were on.
+      for (const kind of ['test', 'example']) {
+        const preview = relationGroups(graph, sel, { tests: o.tests || kind === 'test', examples: o.examples || kind === 'example' });
+        tally[kind] = count(preview[`${kind}dep`]);
+        tally[`${kind}r`] = count(preview[`${kind}rdep`]);
       }
     }
     const put = (key, n) => { const c = counts.get(key); if (c) c.textContent = sel ? `(${n})` : ''; };
@@ -327,10 +334,11 @@ export function createLegend(root, graph, onChange, onLayout = () => {}) {
     for (const [k, input] of stdChips) input.checked = !expStds || expStds.has(k);
     for (const [k, input] of catChips) input.checked = catIncluded(cats, k);
 
-    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds;
+    const isDefault = Object.keys(DEFAULT_OPTIONS).every(k => hiddenOptions.has(k) || o[k] === DEFAULT_OPTIONS[k]) && !cats && !stds;
     reset.disabled = isDefault;
     root.classList.toggle('modified', !isDefault);
+    modified = !isDefault;
   }
 
-  return { update };
+  return { update, isModified: () => modified };
 }

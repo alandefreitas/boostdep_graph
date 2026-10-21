@@ -1,7 +1,6 @@
 // Details panel for the selected module.
-import { depsClosure, dependantsClosure, dependencyPath, extraNeeds } from './graph.js';
-import { stdClass } from './render.js';
-import { h, moduleName } from './dom.js';
+import { relationGroups, visibleModules, dependencyPath, extraNeeds } from './graph.js';
+import { h, moduleName, stdClass, stdLabel } from './dom.js';
 
 /**
  * @param {HTMLElement} root the <aside>
@@ -37,17 +36,24 @@ export function createDetails(root, graph, { onSelect, onClose }) {
   }
 
   let hint = null;
-  const IDLE = "Hover a dependency to see how it's reached";
+  const IDLE = "Hover an indirect dependency to see how it's reached";
   const setHint = text => { hint.textContent = text || IDLE; hint.classList.toggle('idle', !text); };
-  function section(title, ids, sel, { pathsOn, from }) {
-    if (!ids.length) return null;
+  let vis = null;
+  function section(title, all, sel, { pathsOn, from }) {
+    const ids = all.filter(id => vis.has(id));
+    const hidden = all.length - ids.length;
+    if (!all.length) return null;
     const s = h('section', 'sec');
     s.appendChild(h('h3', '', `${title} (${ids.length})`));
-    s.appendChild(chipList(ids, from ?? sel, hint, pathsOn && from !== undefined));
+    if (ids.length) s.appendChild(chipList(ids, from ?? sel, hint, pathsOn && from !== undefined));
+    if (hidden) s.appendChild(h('p', 'muted det-hidden', `+${hidden} hidden by filters`));
     return s;
   }
 
-  function render(sel, o) {
+  function render(sel, state) {
+    const o = state.options;
+    vis = visibleModules(graph, state.filters);
+    vis.add(sel);
     const m = graph.modules.get(sel);
     root.replaceChildren();
     hint = h('div', 'det-foot');
@@ -68,7 +74,7 @@ export function createDetails(root, graph, { onSelect, onClose }) {
 
     const body = h('div', 'det-body');
     const facts = h('div', 'facts');
-    const std = h('span', `pill std ${stdClass(m.cxxstd)}`, `C++${m.cxxstd}${m.cxxstdInferred ? ' (inferred)' : ''}`);
+    const std = h('span', `pill std ${stdClass(m.cxxstd)}`, stdLabel(m));
     facts.appendChild(std);
     for (const [flag, label] of [['buildable', 'Buildable'], ['tool', 'Tool'], ['proposed', 'Proposed'], ['deprecated', 'Deprecated']]) {
       if (m[flag]) facts.appendChild(h('span', `pill flag-${flag}`, label));
@@ -95,34 +101,33 @@ export function createDetails(root, graph, { onSelect, onClose }) {
       body.appendChild(s);
     }
 
-    const direct = [...graph.out.get(sel).lib];
-    const directSet = new Set(direct);
-    const tdeps = [...depsClosure(graph, sel)].filter(x => !directSet.has(x));
-    const rdirect = [...graph.in.get(sel).lib];
-    const rdirectSet = new Set(rdirect);
-    const trdeps = [...dependantsClosure(graph, sel)].filter(x => !rdirectSet.has(x));
+    const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
     const byLevelDesc = (a, b) => level(b) - level(a) || (a < b ? -1 : 1);
     const byLevelAsc = (a, b) => level(a) - level(b) || (a < b ? -1 : 1);
     const pathsOn = o.paths;
 
     const secs = [
-      section('Direct dependencies', direct.sort(byLevelDesc), sel, { pathsOn }),
-      section('Indirect dependencies', tdeps.sort(byLevelDesc), sel, { pathsOn, from: sel }),
-      section('Direct dependants', rdirect.sort(byLevelAsc), sel, { pathsOn }),
-      section('Indirect dependants', trdeps.sort(byLevelAsc), sel, { pathsOn: false }),
+      section('Direct dependencies', [...groups.dep].sort(byLevelDesc), sel, { pathsOn }),
+      section('Indirect dependencies', [...groups.tdep].sort(byLevelDesc), sel, { pathsOn, from: sel }),
+      section('Direct dependants', [...groups.rdep].sort(byLevelAsc), sel, { pathsOn }),
+      section('Indirect dependants', [...groups.trdep].sort(byLevelAsc), sel, { pathsOn: false }),
     ];
     for (const [kind, on, label] of [['test', o.tests, 'tests'], ['example', o.examples, 'examples']]) {
       if (!on) continue;
-      const n = extraNeeds(graph, sel, kind);
+      const direct = extraNeeds(graph, sel, kind).direct;
+      const needs = groups[`${kind}dep`];
+      const indirect = needs.filter(id => !direct.has(id));
       secs.push(
-        section(`Also needed by its ${label}`, [...n.direct].sort(byLevelDesc), sel, { pathsOn }),
-        section(`Needed indirectly by its ${label}`, [...n.transitive].sort(byLevelDesc), sel, { pathsOn }),
+        section(`Also needed by its ${label}`, needs.filter(id => direct.has(id)).sort(byLevelDesc), sel, { pathsOn }),
+        section(`Needed indirectly by its ${label}`, indirect.sort(byLevelDesc), sel, { pathsOn }),
+        section(`Libraries whose ${label} need it`, [...groups[`${kind}rdep`]].sort(byLevelAsc), sel, { pathsOn: false }),
       );
     }
     for (const s of secs) if (s) body.appendChild(s);
     if (!secs.some(Boolean)) body.appendChild(h('p', 'muted', 'No dependencies and no dependants.'));
 
-    root.append(body, hint);
+    root.appendChild(body);
+    if (o.paths && groups.tdep.some(id => vis.has(id))) root.appendChild(hint);
   }
 
   return {
@@ -131,10 +136,11 @@ export function createDetails(root, graph, { onSelect, onClose }) {
       root.hidden = !sel;
       if (!sel) { shownKey = ''; return; }
       const o = state.options;
-      const key = `${sel}|${o.tests}|${o.examples}|${o.paths}`;
+      const f = state.filters;
+      const key = [sel, o.tests, o.examples, o.paths, f.categories ? [...f.categories].join('|') : '*', f.cxxstd ? [...f.cxxstd].join('|') : '*'].join('~');
       if (key === shownKey) return;
       shownKey = key;
-      render(sel, o);
+      render(sel, state);
     },
   };
 }

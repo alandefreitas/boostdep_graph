@@ -414,6 +414,7 @@ class RedirectStubTests(unittest.TestCase):
         self.assertIn('<meta http-equiv="refresh" content="0; url=../#url">', text)
         self.assertIn('<link rel="canonical" href="../#url">', text)
         self.assertIn('<a href="../#url">', text)
+        self.assertIn('<title>url - Boost Dependency Graph</title>', text)
         self.assertIn('location.replace("../#"+"url"', text)
         self.assertIn('../#numeric~conversion', self.read('numeric~conversion.html'))
 

@@ -144,7 +144,10 @@ function main() {
 
   let view = null;
   const imp = importance(graph);
-  const legend = createLegend($('legend'), graph, fn => store.change(fn), () => view?.relayout());
+  const legend = createLegend($('legend'), graph, fn => store.change(fn), {
+    onLayout: () => view?.relayout(),
+    onClose: () => setDrawer(false),
+  });
   view = createGraphView($('graph'), graph, layout(graph), imp);
   view.onSelect = select;
 
@@ -217,17 +220,6 @@ function main() {
     if (open) $('legend').querySelector('.lg-close')?.focus({ preventScroll: true });
     else if (was) $('m-legend').focus({ preventScroll: true });
   };
-  const GRAPH_ONLY = ['Same category', 'Dependency paths', 'Size =', 'Diamond =', 'Can be built', 'Boost tool', 'Deprecated', 'Proposed for', 'Names', 'Background web'];
-  for (const lab of $('legend').querySelectorAll('.lg-row .lg-label')) {
-    if (GRAPH_ONLY.some(t => lab.textContent.startsWith(t))) lab.closest('.lg-row').classList.add('graph-only');
-  }
-  const closeBtn = document.createElement('button');
-  closeBtn.type = 'button';
-  closeBtn.className = 'icon-btn lg-close';
-  closeBtn.textContent = '×';
-  closeBtn.setAttribute('aria-label', 'Close legend and options');
-  closeBtn.addEventListener('click', () => setDrawer(false));
-  $('legend').querySelector('.lg-head').appendChild(closeBtn);
   $('m-legend').addEventListener('click', () => setDrawer(true));
   $('scrim').addEventListener('click', () => setDrawer(false));
   window.addEventListener('keydown', e => {
@@ -276,7 +268,7 @@ function main() {
     focusView.update(state);
     syncInset();
     legend.update(state);
-    $('m-legend').classList.toggle('modified', $('legend').classList.contains('modified'));
+    $('m-legend').classList.toggle('modified', legend.isModified());
     if (state.notFound) {
       const f = state.filters;
       notice.textContent = `Library not found: "${state.notFound}". ${f.categories || f.cxxstd ? 'Showing the overview.' : 'Showing all libraries.'}`;

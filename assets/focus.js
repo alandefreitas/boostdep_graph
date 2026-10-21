@@ -1,8 +1,7 @@
 // Phone focus view: the selected library in the middle, what it needs on the left, what needs it on the right.
 // With nothing selected it shows a short intro and the most depended-upon libraries as tappable chips.
-import { relations, extraNeeds, visibleModules } from './graph.js';
-import { stdClass, expandStd } from './render.js';
-import { h, moduleName } from './dom.js';
+import { relationGroups, extraNeeds, visibleModules } from './graph.js';
+import { h, moduleName, stdClass, stdLabel } from './dom.js';
 
 const POPULAR = 10;
 const HIDDEN = 'Hidden by your filters or options.';
@@ -89,12 +88,12 @@ export function createFocus(root, graph, importance, { onSelect, onOpenDetails }
     const o = state.options;
     const m = graph.modules.get(sel);
     const scroll = lastSel === sel ? [...root.querySelectorAll('.f-col')].map(c => c.scrollTop) : [];
-    const vis = visibleModules(graph, { categories: state.filters.categories, cxxstd: expandStd(state.filters.cxxstd) });
+    const vis = visibleModules(graph, { categories: state.filters.categories, cxxstd: state.filters.cxxstd });
     vis.add(sel);
     const keep = ids => [...ids].filter(id => vis.has(id)).sort(byName);
 
-    const rel = relations(graph, sel, { tests: o.tests, examples: o.examples });
-    const ofRel = (r, allowed = true) => (allowed ? keep([...rel].filter(([, v]) => v === r).map(([id]) => id)) : []);
+    const groups = relationGroups(graph, sel, { tests: o.tests, examples: o.examples });
+    const ofRel = (r, allowed = true) => (allowed ? keep(groups[r]) : []);
     const depsDirect = ofRel('dep', o.deps).map(id => [id, 'f-dep']);
     const depsInd = ofRel('tdep', o.tdeps).map(id => [id, 'f-tdep']);
     const rdDirect = ofRel('rdep', o.rdeps).map(id => [id, 'f-rdep']);
@@ -122,7 +121,7 @@ export function createFocus(root, graph, importance, { onSelect, onOpenDetails }
     center.type = 'button';
     center.setAttribute('aria-label', `${name(sel)}: open details`);
     const top = h('span', 'f-ctop');
-    top.append(h('span', 'f-cname', name(sel)), h('span', `pill std ${stdClass(m.cxxstd)}`, `C++${m.cxxstd}${m.cxxstdInferred ? ' (inferred)' : ''}`));
+    top.append(h('span', 'f-cname', name(sel)), h('span', `pill std ${stdClass(m.cxxstd)}`, stdLabel(m)));
     center.appendChild(top);
     if (m.description) center.appendChild(h('span', 'f-cdesc', m.description));
     center.appendChild(h('span', 'f-chint', 'Tap for details'));

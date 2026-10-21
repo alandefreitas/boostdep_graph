@@ -1,5 +1,6 @@
 // Hand-written SVG renderer: builds the DOM once, then only toggles classes and attributes.
-import { relations, visibleModules, maxImportance, extraNeeds } from './graph.js';
+import { relations, extraNeeds, extraDependants, visibleModules, maxImportance } from './graph.js';
+import { stdClass, stdLabel } from './dom.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_R = 4.5;
@@ -27,15 +28,6 @@ export function el(tag, attrs = {}, parent = null) {
   return e;
 }
 
-/** 98 and 03 are one chip: a filter containing either matches both. */
-export function expandStd(set) {
-  if (!set) return null;
-  const res = new Set(set);
-  if (res.has('03')) res.add('98');
-  if (res.has('98')) res.add('03');
-  return res;
-}
-
 /** Diamond (standard-alternative) side and halo-relevant radius for a node of radius r. */
 export function diamondGeom(r) {
   const rr = r * 0.9;
@@ -53,17 +45,15 @@ export function badgeGeom(r, angle) {
   };
 }
 
-/** CSS class suffix for a C++ standard: 98 and 03 share one chip. */
-export function stdClass(cxxstd) {
-  const s = String(cxxstd);
-  return s === '98' || s === '03' ? 'std-03' : `std-${s}`;
-}
-
 /**
  * @param {SVGSVGElement} svg
  * @param {object} graph from buildGraph()
  * @param {Map<string, {x: number, y: number}>} layout from layout()
  * @param {Map<string, number>} importance from importance()
+ * @returns {{onSelect: ((id: string|null) => void)|null, update: (state: object) => void, relayout: () => void,
+ *            setInset: (v: number|{right?: number, bottom?: number}) => void, fit: (animate?: boolean) => void,
+ *            focus: (id: string) => void, settle: () => void, stats: () => object}}
+ *   The view API. Assign `onSelect` to receive node clicks (`null` when the background is clicked).
  */
 export function createGraphView(svg, graph, layout, importance) {
   const maxImp = maxImportance(importance) || 1;
@@ -449,7 +439,7 @@ export function createGraphView(svg, graph, layout, importance) {
     title.textContent = m.name || nd.id;
     const std = document.createElement('span');
     std.className = 'tt-std';
-    std.textContent = `C++${m.cxxstd}${m.cxxstdInferred ? ' (inferred)' : ''}`;
+    std.textContent = stdLabel(m);
     title.append(' ', std);
     tooltip.appendChild(title);
     if (m.description) {
@@ -474,7 +464,7 @@ export function createGraphView(svg, graph, layout, importance) {
     const relMap = sel ? relations(graph, sel, { tests: o.tests, examples: o.examples }) : null;
     const visible = visibleModules(graph, {
       categories: state.filters.categories,
-      cxxstd: expandStd(state.filters.cxxstd),
+      cxxstd: state.filters.cxxstd,
     });
     if (sel) visible.add(sel);
     const relOf = id => (relMap ? relMap.get(id) : null);
@@ -535,10 +525,12 @@ export function createGraphView(svg, graph, layout, importance) {
     const hi = [];
     const needs = {};
     if (sel) {
+      // Edges follow the raw needs (colour = the edge's role: orange for needs, blue for dependants),
+      // independent of the ranked ring on the target; rings and counts use relationGroups().
       for (const kind of ['test', 'example']) {
         if (!o[`${kind}s`]) continue;
         const n = extraNeeds(graph, sel, kind);
-        needs[kind] = { direct: n.direct, all: new Set([...n.direct, ...n.transitive]) };
+        needs[kind] = { direct: n.direct, all: new Set([...n.direct, ...n.transitive]), rdeps: extraDependants(graph, sel, kind) };
       }
     }
     for (const e of bgEdges) {
@@ -566,10 +558,9 @@ export function createGraphView(svg, graph, layout, importance) {
         for (const to of graph.out.get(id)[kind]) {
           if (!visible.has(to) || graph.out.get(id).lib.has(to)) continue;
           if (sel) {
-            const rf = relOf(id);
             const rt = relOf(to);
             const need = id === sel && needs[kind].direct.has(to);
-            const dependant = rf === `${kind}rdep` && isOneOf(rt, 'self', 'rdep', 'trdep');
+            const dependant = needs[kind].rdeps.has(id) && isOneOf(rt, 'self', 'rdep', 'trdep');
             if (!need && !dependant) continue;
             hi.push({ from: id, to, cls: `edge x-${kind} ${need ? 'hi-x' : 'hi-xr'}` });
           } else {

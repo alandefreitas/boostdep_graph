@@ -2,7 +2,7 @@
 // cat=- means no category selected (empty set); cat= alone means only uncategorized modules (the '' sentinel).
 // Hash format: #<id>&key=0|1 (only options that differ from the default)&cat=IO,Math&std=11,14
 
-/** Every option key with its default. Step 4 adds the controls that flip them. */
+/** Every option key with its default. */
 export const DEFAULT_OPTIONS = Object.freeze({
   background: true,
   deps: true,
