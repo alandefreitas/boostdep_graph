@@ -139,11 +139,16 @@ function main() {
     onClose: () => setDrawer(false),
   });
   view = createGraphView($('graph'), graph, layout(graph), imp);
-  view.onSelect = select;
+  view.onSelect = id => select(id !== null && id === store.state.selected ? null : id);
 
   const details = createDetails($('details'), graph, {
     onSelect: select,
     onClose: () => select(null),
+    onToggleHidden: () => {
+      if (mq.matches) return;
+      syncInset();
+      if (store.state.selected) view.focus(store.state.selected);
+    },
   });
 
   const sheet = $('details');

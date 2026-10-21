@@ -5,10 +5,16 @@ import { h, moduleName, stdClass, stdLabel, BADGES, KIND_OPTION, enabledKinds } 
 /**
  * @param {HTMLElement} root the <aside>
  * @param {object} graph from buildGraph()
- * @param {{onSelect: (id: string) => void, onClose: () => void}} handlers
+ * @param {{onSelect: (id: string) => void, onClose: () => void, onToggleHidden?: (hidden: boolean) => void}} handlers
  */
-export function createDetails(root, graph, { onSelect, onClose }) {
+export function createDetails(root, graph, { onSelect, onClose, onToggleHidden }) {
   let shownKey = '';
+  let folded = false;
+  const setFolded = v => {
+    folded = v;
+    root.classList.toggle('railed', v);
+    onToggleHidden?.(v);
+  };
   const level = id => graph.modules.get(id).level;
   const name = id => moduleName(graph, id);
 
@@ -66,12 +72,27 @@ export function createDetails(root, graph, { onSelect, onClose }) {
     titles.appendChild(h('h2', '', m.name || sel));
     titles.appendChild(h('code', 'det-id', sel));
     head.appendChild(titles);
+    let rail = null;
+    const hide = h('button', 'icon-btn det-hide', '\u203A');
+    hide.type = 'button';
+    hide.setAttribute('aria-label', 'Hide panel');
+    hide.title = 'Hide panel (keeps the selection)';
+    hide.addEventListener('click', () => { setFolded(true); rail.focus({ preventScroll: true }); });
+    head.appendChild(hide);
     const close = h('button', 'icon-btn det-close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', 'Close details');
     close.addEventListener('click', onClose);
     head.appendChild(close);
     root.appendChild(head);
+
+    rail = h('button', 'det-rail');
+    rail.type = 'button';
+    rail.setAttribute('aria-label', `Show details for ${m.name || sel}`);
+    rail.title = 'Show panel';
+    rail.append(h('span', 'det-rail-chev', '\u2039'), h('span', 'det-rail-name', m.name || sel));
+    rail.addEventListener('click', () => { setFolded(false); hide.focus({ preventScroll: true }); });
+    root.appendChild(rail);
 
     const body = h('div', 'det-body');
     const facts = h('div', 'facts');
@@ -135,7 +156,11 @@ export function createDetails(root, graph, { onSelect, onClose }) {
     update(state) {
       const sel = state.selected;
       root.hidden = !sel;
-      if (!sel) { shownKey = ''; return; }
+      if (!sel) {
+        shownKey = '';
+        if (folded) setFolded(false);
+        return;
+      }
       const o = state.options;
       const f = state.filters;
       const key = [sel, o.tests, o.examples, o.paths, f.categories ? [...f.categories].join('|') : '*', f.cxxstd ? [...f.cxxstd].join('|') : '*'].join('~');

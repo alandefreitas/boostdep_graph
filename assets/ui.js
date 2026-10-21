@@ -161,7 +161,7 @@ export function createLegend(root, graph, onChange, { onLayout = () => {}, onClo
   g1.body.appendChild(row({ sampleEl: pathSample, label: 'Dependency paths', help: 'Hover a library in the details panel to see how the two connect.', option: 'paths', graphOnly: true }));
 
   // ---- group: include ----
-  const g2 = group('Include (off by default)', 'By default only what users actually pull in is shown.');
+  const g2 = group('Dependency types');
   const COUNT_NOTE = 'The count leaves out libraries already shown in another role, so edges can come from more libraries.';
   const INCL = [
     ['test', 'Test dependencies', 'Also count what the library\u2019s tests pull in. Dashed orange.', `Blue dashed: libraries whose tests need it. ${COUNT_NOTE}`],
