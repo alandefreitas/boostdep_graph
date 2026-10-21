@@ -3,6 +3,7 @@ import { buildGraph, layout, importance } from './graph.js';
 import { createStore } from './state.js';
 import { createGraphView } from './render.js';
 import { createDetails } from './details.js';
+import { createLegend } from './ui.js';
 
 const data = window.BOOSTDEP_DATA;
 const $ = id => document.getElementById(id);
@@ -110,7 +111,7 @@ function setupSearch(graph, store, select) {
   });
   document.addEventListener('keydown', e => {
     const t = e.target;
-    const typing = t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const typing = t instanceof HTMLElement && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName) || (t.tagName === 'INPUT' && !/^(checkbox|radio|button)$/.test(t.type)));
     if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       input.focus();
@@ -131,7 +132,9 @@ function main() {
   const select = id => store.change(s => { s.selected = id; }, { push: true });
   setupSearch(graph, store, select);
 
-  const view = createGraphView($('graph'), graph, layout(graph), importance(graph));
+  let view = null;
+  const legend = createLegend($('legend'), graph, fn => store.change(fn), () => view?.relayout());
+  view = createGraphView($('graph'), graph, layout(graph), importance(graph));
   view.onSelect = select;
 
   const details = createDetails($('details'), graph, {
@@ -139,11 +142,21 @@ function main() {
     onClose: () => select(null),
   });
 
+  const syncInset = () => {
+    const d = $('details');
+    const overlay = getComputedStyle(d).position === 'absolute' && !d.hidden;
+    view.setInset(overlay ? d.offsetWidth + 24 : 0);
+  };
+  window.matchMedia('(max-width:1279px)').addEventListener('change', syncInset);
+  new ResizeObserver(syncInset).observe($('details'));
+
   const notice = $('notice');
   let lastSelected;
   store.subscribe(state => {
     view.update(state);
     details.update(state);
+    syncInset();
+    legend.update(state);
     if (state.notFound) {
       const f = state.filters;
       notice.textContent = `Library not found: "${state.notFound}". ${f.categories || f.cxxstd ? 'Showing the overview.' : 'Showing all libraries.'}`;

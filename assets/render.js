@@ -20,7 +20,7 @@ const BADGES = [
   ['proposedMarker', 'sym-proposed', 'proposed', 135],
 ];
 
-function el(tag, attrs = {}, parent = null) {
+export function el(tag, attrs = {}, parent = null) {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
   if (parent) parent.appendChild(e);
@@ -28,12 +28,29 @@ function el(tag, attrs = {}, parent = null) {
 }
 
 /** 98 and 03 are one chip: a filter containing either matches both. */
-function expandStd(set) {
+export function expandStd(set) {
   if (!set) return null;
   const res = new Set(set);
   if (res.has('03')) res.add('98');
   if (res.has('98')) res.add('03');
   return res;
+}
+
+/** Diamond (standard-alternative) side and halo-relevant radius for a node of radius r. */
+export function diamondGeom(r) {
+  const rr = r * 0.9;
+  return { rr, side: rr * 1.45 };
+}
+
+/** Badge symbol size and top-left offset for a node of radius r, at `angle` degrees (0 = right, clockwise). */
+export function badgeGeom(r, angle) {
+  const size = Math.max(9, Math.min(13, r * 0.9));
+  const a = (angle * Math.PI) / 180;
+  return {
+    size,
+    x: (Math.cos(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
+    y: (Math.sin(a) * (r + 1) * 0.85 - size / 2).toFixed(1),
+  };
 }
 
 /** CSS class suffix for a C++ standard: 98 and 03 share one chip. */
@@ -53,22 +70,27 @@ export function createGraphView(svg, graph, layout, importance) {
   const host = svg.parentElement;
   const tooltip = host.querySelector('#tooltip');
 
-  // Grid steps come from the available area once, so nodes never move afterwards.
-  const area = host.parentElement;
-  const areaW = Math.max((area?.clientWidth || window.innerWidth) - 24, 640);
-  const areaH = Math.max(host.clientHeight || window.innerHeight - 90, 420);
+  // Grid steps come from the stage size, measured at creation and on relayout() (legend collapse or expand).
+  // Toggling options never changes them, so nodes never move.
   let gx0 = Infinity, gx1 = -Infinity, gy0 = Infinity, gy1 = -Infinity;
   for (const p of layout.values()) {
     gx0 = Math.min(gx0, p.x); gx1 = Math.max(gx1, p.x);
     gy0 = Math.min(gy0, p.y); gy1 = Math.max(gy1, p.y);
   }
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const xStep = clamp((areaW - 150) / Math.max(1, gx1 - gx0), 48, 150);
-  const yStep = clamp((areaH - 110) / Math.max(1, gy1 - gy0), 22, 56);
-  const rMax = Math.min(14, yStep * 0.45);
+  let rMax = 14;
+  let bounds = { x: 0, y: 0, w: 1, h: 1 };
   const pos = new Map();
-  for (const [id, p] of layout) pos.set(id, { x: p.x * xStep, y: p.y * yStep });
-  const bounds = { x: gx0 * xStep - 70, y: gy0 * yStep - 40, w: (gx1 - gx0) * xStep + 140, h: (gy1 - gy0) * yStep + 90 };
+  function computeGrid() {
+    const areaW = Math.max(host.clientWidth || window.innerWidth, 400);
+    const areaH = Math.max(host.clientHeight || window.innerHeight - 90, 300);
+    const xStep = clamp((areaW - 150) / Math.max(1, gx1 - gx0), 36, 150);
+    const yStep = clamp((areaH - 110) / Math.max(1, gy1 - gy0), 14, 56);
+    rMax = Math.min(14, yStep * 0.45);
+    for (const [id, p] of layout) pos.set(id, { x: p.x * xStep, y: p.y * yStep });
+    bounds = { x: gx0 * xStep - 70, y: gy0 * yStep - 40, w: (gx1 - gx0) * xStep + 140, h: (gy1 - gy0) * yStep + 90 };
+  }
+  computeGrid();
 
   const viewport = el('g', { class: 'viewport' }, svg);
   const gBg = el('g', { class: 'edges-bg' }, viewport);
@@ -122,9 +144,10 @@ export function createGraphView(svg, graph, layout, importance) {
   let tween = 0;
   let fitK = 0.3;
 
+  let inset = 0;
   function size() {
     const r = svg.getBoundingClientRect();
-    return { w: r.width || 1, h: r.height || 1 };
+    return { w: Math.max(1, (r.width || 1) - inset), h: r.height || 1 };
   }
 
   function applyCamera() {
@@ -187,7 +210,7 @@ export function createGraphView(svg, graph, layout, importance) {
       nd.sx = sx;
       nd.sy = sy;
       nd.rs = nd.r * (nd.altShown ? 0.9 : 1) * nd.s * k;
-      const vis = !nd.hidden && sx > -40 && sx < w + 40 && sy > -40 && sy < h + 40;
+      const vis = !nd.filtered && sx > -40 && sx < w + 40 && sy > -40 && sy < h + 40;
       nd.vis = vis;
       if (vis) {
         stats.labelsTotal++;
@@ -442,7 +465,9 @@ export function createGraphView(svg, graph, layout, importance) {
   }
 
   // ---- state -> DOM ----
+  let lastState = null;
   function update(state) {
+    lastState = state;
     const o = state.options;
     const sel = state.selected && graph.modules.has(state.selected) ? state.selected : null;
     const relMap = sel ? relations(graph, sel, { tests: o.tests, examples: o.examples }) : null;
@@ -450,6 +475,7 @@ export function createGraphView(svg, graph, layout, importance) {
       categories: state.filters.categories,
       cxxstd: expandStd(state.filters.cxxstd),
     });
+    if (sel) visible.add(sel);
     const relOf = id => (relMap ? relMap.get(id) : null);
     selId = sel;
     labelsOn = o.labels;
@@ -464,34 +490,32 @@ export function createGraphView(svg, graph, layout, importance) {
       const alt = nd.alt && o.stdAltMarker;
       const r = o.sizeImportance ? MIN_R + (rMax - MIN_R) * (importance.get(nd.id) / maxImp) : (MIN_R + rMax) / 2;
       const parts = ['node', o.colorStd ? stdClass(nd.m.cxxstd) : 'std-none'];
-      if (shown) parts.push(`rel-${shown}`, 'rel');
+      nd.filtered = !visible.has(nd.id);
+      if (nd.filtered) parts.push('filtered');
+      else if (shown) parts.push(`rel-${shown}`, 'rel');
       else if (sel) parts.push('dim');
-      nd.hidden = !visible.has(nd.id);
-      if (nd.hidden) parts.push('hidden');
       if (alt) parts.push('alt');
       const cls = parts.join(' ');
       if (cls !== nd.cls) { nd.g.setAttribute('class', cls); nd.cls = cls; }
       if (r !== nd.r || nd.altShown !== alt) {
         nd.r = r;
         nd.altShown = alt;
-        const rr = alt ? r * 0.9 : r;
+        const { rr: dr, side: s } = diamondGeom(r);
         nd.circle.setAttribute('r', r);
         nd.circle.style.display = alt ? 'none' : '';
         nd.diamond.style.display = alt ? '' : 'none';
-        const s = rr * 1.45;
         nd.diamond.setAttribute('x', -s / 2);
         nd.diamond.setAttribute('y', -s / 2);
         nd.diamond.setAttribute('width', s);
         nd.diamond.setAttribute('height', s);
         nd.diamond.setAttribute('transform', 'rotate(45)');
-        nd.halo.setAttribute('r', rr + 6);
-        const bs = Math.max(9, Math.min(13, r * 0.9));
+        nd.halo.setAttribute('r', (alt ? dr : r) + 6);
         for (const b of nd.badges) {
-          const a = (b.angle * Math.PI) / 180;
-          b.u.setAttribute('x', (Math.cos(a) * (r + 1) * 0.85 - bs / 2).toFixed(1));
-          b.u.setAttribute('y', (Math.sin(a) * (r + 1) * 0.85 - bs / 2).toFixed(1));
-          b.u.setAttribute('width', bs);
-          b.u.setAttribute('height', bs);
+          const bg = badgeGeom(r, b.angle);
+          b.u.setAttribute('x', bg.x);
+          b.u.setAttribute('y', bg.y);
+          b.u.setAttribute('width', bg.size);
+          b.u.setAttribute('height', bg.size);
         }
       }
       for (const b of nd.badges) {
@@ -518,7 +542,7 @@ export function createGraphView(svg, graph, layout, importance) {
     }
     for (const e of bgEdges) {
       let cls = 'edge';
-      if (!visible.has(e.from) || !visible.has(e.to)) cls = 'edge off';
+      if (!visible.has(e.from) || !visible.has(e.to)) cls = 'edge dim';
       else if (sel) {
         const rf = relOf(e.from);
         const rt = relOf(e.to);
@@ -580,7 +604,33 @@ export function createGraphView(svg, graph, layout, importance) {
   host.querySelector('#zoom-out')?.addEventListener('click', () => zoomBy(1 / 1.4));
   host.querySelector('#zoom-fit')?.addEventListener('click', () => { interacted = false; fit(true); });
 
+  function relayout() {
+    computeGrid();
+    dCache.clear();
+    for (const nd of nodes.values()) {
+      const p = pos.get(nd.id);
+      nd.g.setAttribute('transform', `translate(${p.x},${p.y})`);
+    }
+    for (const e of bgEdges) e.path.setAttribute('d', pathD(e.from, e.to));
+    if (lastState) update(lastState);
+    const f = computeFit();
+    if (selId) focus(selId);
+    else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
+  }
+
+  /** Reserve `px` on the right (an overlaid details panel); fit and focus centre in what is left. */
+  function setInset(px) {
+    if (px === inset) return;
+    inset = px;
+    const f = computeFit();
+    if (selId) focus(selId);
+    else if (!interacted && !tween) { k = f.k; tx = f.x; ty = f.y; applyCamera(); }
+    else applyCamera();
+  }
+
   fit();
+  api.relayout = relayout;
+  api.setInset = setInset;
   api.stats = stats;
   api.settle = settle;
   api.update = update;
