@@ -1,5 +1,5 @@
 window.BOOSTDEP_DATA = {
-"stamp":{"boostCommit":"8f6040071d","boostDate":"2026-10-21","generated":"2026-10-21"},
+"stamp":{"boostCommit":"ec6534d8eb","boostDate":"2026-10-23","generated":"2026-10-23"},
 "modules":[
 {"id":"accumulators","name":"Accumulators","level":18,"cxxstd":"03","cxxstdInferred":false,"authors":["Eric Niebler"],"description":"Framework for incremental calculation, and collection of statistical accumulators.","categories":["Math"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"algorithm","name":"Algorithm","level":10,"cxxstd":"03","cxxstdInferred":false,"authors":["Marshall Clow"],"description":"A collection of useful generic algorithms.","categories":["Algorithms"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":["<algorithm>"]},
@@ -73,7 +73,7 @@ window.BOOSTDEP_DATA = {
 {"id":"interprocess","name":"Interprocess","level":4,"cxxstd":"03","cxxstdInferred":false,"authors":["Ion Gaztañaga"],"description":"Shared memory, memory mapped files, process-shared mutexes, condition variables, containers and allocators.","categories":["Concurrent"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"intrusive","name":"Intrusive","level":2,"cxxstd":"03","cxxstdInferred":false,"authors":["Ion Gaztañaga"],"description":"Intrusive containers and algorithms.","categories":["Containers"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"io","name":"IO","level":1,"cxxstd":"03","cxxstdInferred":false,"authors":["Daryle Walker","Beman Dawes","Glen Fernandes"],"description":"Utilities for the standard I/O library.","categories":["IO"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
-{"id":"iostreams","name":"Iostreams","level":10,"cxxstd":"03","cxxstdInferred":false,"authors":["Jonathan Turkanis"],"description":"Boost.IOStreams provides a framework for defining streams, stream buffers and i/o filters.","categories":["IO","String"],"buildable":true,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
+{"id":"iostreams","name":"Iostreams","level":10,"cxxstd":"11","cxxstdInferred":false,"authors":["Jonathan Turkanis"],"description":"Boost.IOStreams provides a framework for defining streams, stream buffers and i/o filters.","categories":["IO","String"],"buildable":true,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"iterator","name":"Iterator","level":8,"cxxstd":"11","cxxstdInferred":false,"authors":["Dave Abrahams","Jeremy Siek","Thomas Witt"],"description":"The Boost Iterator Library contains two parts. The first is a system of concepts which extend the C++ standard iterator requirements. The second is a framework of components for building iterators based on these extended concepts and includes several useful iterator adaptors.","categories":["Iterators"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"json","name":"JSON","level":5,"cxxstd":"11","cxxstdInferred":false,"authors":["Vinnie Falco","Krystian Stasiowski"],"description":"JSON parsing, serialization, and DOM in C++11","categories":["Containers","Data","IO"],"buildable":true,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"lambda","name":"Lambda","level":9,"cxxstd":"03","cxxstdInferred":false,"authors":["Jaakko Järvi","Gary Powell"],"description":"Define small unnamed function objects at the actual call site, and more.","categories":["Function-objects"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":["lambdas"]},
@@ -1104,6 +1104,7 @@ window.BOOSTDEP_DATA = {
 {"from":"json","to":"mp11","kind":"lib"},
 {"from":"json","to":"system","kind":"lib"},
 {"from":"json","to":"throw_exception","kind":"lib"},
+{"from":"json","to":"optional","kind":"test"},
 {"from":"json","to":"utility","kind":"test"},
 {"from":"json","to":"variant2","kind":"test"},
 {"from":"lambda","to":"config","kind":"lib"},
