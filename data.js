@@ -1,5 +1,5 @@
 window.BOOSTDEP_DATA = {
-"stamp":{"boostCommit":"ec6534d8eb","boostDate":"2026-10-23","generated":"2026-10-23"},
+"stamp":{"boostCommit":"7e7fe895f6","boostDate":"2026-11-17","generated":"2026-11-17"},
 "modules":[
 {"id":"accumulators","name":"Accumulators","level":18,"cxxstd":"03","cxxstdInferred":false,"authors":["Eric Niebler"],"description":"Framework for incremental calculation, and collection of statistical accumulators.","categories":["Math"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"algorithm","name":"Algorithm","level":10,"cxxstd":"03","cxxstdInferred":false,"authors":["Marshall Clow"],"description":"A collection of useful generic algorithms.","categories":["Algorithms"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":["<algorithm>"]},
@@ -1225,7 +1225,6 @@ window.BOOSTDEP_DATA = {
 {"from":"logic","to":"config","kind":"lib"},
 {"from":"logic","to":"core","kind":"lib"},
 {"from":"math","to":"algorithm","kind":"example"},
-{"from":"math","to":"array","kind":"example"},
 {"from":"math","to":"detail","kind":"example"},
 {"from":"math","to":"endian","kind":"example"},
 {"from":"math","to":"format","kind":"example"},
@@ -1235,9 +1234,7 @@ window.BOOSTDEP_DATA = {
 {"from":"math","to":"preprocessor","kind":"example"},
 {"from":"math","to":"range","kind":"example"},
 {"from":"math","to":"regex","kind":"example"},
-{"from":"math","to":"system","kind":"example"},
 {"from":"math","to":"test","kind":"example"},
-{"from":"math","to":"timer","kind":"example"},
 {"from":"math","to":"assert","kind":"lib"},
 {"from":"math","to":"concept_check","kind":"lib"},
 {"from":"math","to":"config","kind":"lib"},
@@ -1247,7 +1244,6 @@ window.BOOSTDEP_DATA = {
 {"from":"math","to":"predef","kind":"lib"},
 {"from":"math","to":"random","kind":"lib"},
 {"from":"math","to":"throw_exception","kind":"lib"},
-{"from":"math","to":"array","kind":"test"},
 {"from":"math","to":"bind","kind":"test"},
 {"from":"math","to":"circular_buffer","kind":"test"},
 {"from":"math","to":"fusion","kind":"test"},
