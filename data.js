@@ -1,5 +1,5 @@
 window.BOOSTDEP_DATA = {
-"stamp":{"boostCommit":"11d539c358","boostDate":"2026-11-18","generated":"2026-11-18"},
+"stamp":{"boostCommit":"c19cd5d20d","boostDate":"2026-11-19","generated":"2026-11-19"},
 "modules":[
 {"id":"accumulators","name":"Accumulators","level":18,"cxxstd":"03","cxxstdInferred":false,"authors":["Eric Niebler"],"description":"Framework for incremental calculation, and collection of statistical accumulators.","categories":["Math"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":[]},
 {"id":"algorithm","name":"Algorithm","level":10,"cxxstd":"03","cxxstdInferred":false,"authors":["Marshall Clow"],"description":"A collection of useful generic algorithms.","categories":["Algorithms"],"buildable":false,"tool":false,"proposed":false,"deprecated":false,"stdAlternatives":["<algorithm>"]},
@@ -1224,7 +1224,6 @@ window.BOOSTDEP_DATA = {
 {"from":"log","to":"tuple","kind":"test"},
 {"from":"logic","to":"config","kind":"lib"},
 {"from":"logic","to":"core","kind":"lib"},
-{"from":"math","to":"endian","kind":"example"},
 {"from":"math","to":"format","kind":"example"},
 {"from":"math","to":"hana","kind":"example"},
 {"from":"math","to":"mp11","kind":"example"},
@@ -1246,10 +1245,9 @@ window.BOOSTDEP_DATA = {
 {"from":"math","to":"mp11","kind":"test"},
 {"from":"math","to":"mpl","kind":"test"},
 {"from":"math","to":"multiprecision","kind":"test"},
-{"from":"math","to":"numeric~ublas","kind":"test"},
 {"from":"math","to":"regex","kind":"test"},
 {"from":"math","to":"test","kind":"test"},
-{"from":"math","to":"type_index","kind":"test"},
+{"from":"math","to":"type_traits","kind":"test"},
 {"from":"metaparse","to":"rational","kind":"example"},
 {"from":"metaparse","to":"xpressive","kind":"example"},
 {"from":"metaparse","to":"config","kind":"lib"},
